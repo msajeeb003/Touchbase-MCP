@@ -11,11 +11,11 @@ const globalErrorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
 
   if (err instanceof ZodError) {
     statusCode = 400;
-    message = "Validation Error";
     errorDetails = err.issues.map((issue) => ({
       path: issue.path.join("."),
       message: issue.message,
     }));
+    message = errorDetails.map((e) => e.message).join(", ");
   } else if (
     err instanceof PrismaClientKnownRequestError &&
     err.code === "P2002"
