@@ -1,5 +1,6 @@
 import { ErrorRequestHandler } from "express";
 import { ZodError } from "zod";
+import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
 import config from "../../config";
 import AppError from "../errors/AppError";
 
@@ -15,6 +16,13 @@ const globalErrorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
       path: issue.path.join("."),
       message: issue.message,
     }));
+  } else if (
+    err instanceof PrismaClientKnownRequestError &&
+    err.code === "P2002"
+  ) {
+    statusCode = 409;
+    const target = (err.meta?.target as string[]) || [];
+    message = `${target.join(", ")} already exists`;
   } else if (err instanceof AppError) {
     statusCode = err.statusCode;
     message = err.message;
