@@ -104,7 +104,29 @@ const updateSettings = async (
   return decryptAndMask(settings as unknown as Record<string, unknown>);
 };
 
+const getDecryptedField = async (
+  userId: string,
+  field: SensitiveField
+): Promise<string | null> => {
+  const settings = await prisma.userSettings.findUnique({
+    where: { userId },
+    select: { [field]: true },
+  });
+
+  if (!settings) return null;
+
+  const value = (settings as Record<string, unknown>)[field];
+  if (typeof value !== "string") return null;
+
+  try {
+    return decrypt(value);
+  } catch {
+    return null;
+  }
+};
+
 export const SettingsService = {
   getSettings,
   updateSettings,
+  getDecryptedField,
 };
