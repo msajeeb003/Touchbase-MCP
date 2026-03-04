@@ -46,7 +46,6 @@ const fathomFetch = async (
 };
 
 type MeetingsQuery = {
-  cursor?: string;
   created_after?: string;
   created_before?: string;
   include_summary?: string;
@@ -54,10 +53,31 @@ type MeetingsQuery = {
   include_action_items?: string;
 };
 
+const MAX_PAGES = 10;
+
 const getMeetings = async (userId: string, query: MeetingsQuery) => {
   const apiKey = await getFathomApiKey(userId);
 
-  return fathomFetch(apiKey, "/meetings", query as Record<string, string>);
+  const allItems: unknown[] = [];
+  let cursor: string | undefined = undefined;
+
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const params: Record<string, string> = {
+      ...(query as Record<string, string>),
+    };
+    if (cursor) params.cursor = cursor;
+
+    const data = (await fathomFetch(apiKey, "/meetings", params)) as {
+      items: unknown[];
+      next_cursor: string | null;
+    };
+    allItems.push(...(data.items || []));
+
+    if (!data.next_cursor) break;
+    cursor = data.next_cursor;
+  }
+
+  return { items: allItems, total: allItems.length };
 };
 
 const getTranscript = async (userId: string, recordingId: string) => {

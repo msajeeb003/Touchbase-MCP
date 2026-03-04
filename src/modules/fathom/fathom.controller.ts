@@ -6,7 +6,6 @@ import { FathomService } from "./fathom.service";
 
 const getMeetings = catchAsync(async (req: AuthRequest, res: Response) => {
   const result = await FathomService.getMeetings(req.user!.id, {
-    cursor: req.query.cursor as string | undefined,
     created_after: req.query.created_after as string | undefined,
     created_before: req.query.created_before as string | undefined,
     include_summary: req.query.include_summary as string | undefined,
