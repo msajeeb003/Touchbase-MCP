@@ -11,6 +11,7 @@ const config = {
     secret: process.env.JWT_SECRET as string,
     expires_in: process.env.JWT_EXPIRES_IN || "7d",
   },
+  encryption_key: process.env.ENCRYPTION_KEY as string,
 };
 
 export default config;

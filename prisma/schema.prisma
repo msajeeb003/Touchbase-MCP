@@ -8,11 +8,42 @@ datasource db {
 }
 
 model User {
-  id           String   @id @default(uuid())
-  email        String   @unique
+  id           String        @id @default(uuid())
+  email        String        @unique
   passwordHash String
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  settings     UserSettings?
 
   @@map("users")
+}
+
+model UserSettings {
+  id                String   @id @default(uuid())
+  userId            String   @unique
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // AI Configuration
+  aiProvider        String?  // "openai" | "gemini"
+  aiApiKey          String?  // AES-256-GCM encrypted
+  aiModel           String?
+
+  // Fathom Integration
+  fathomApiKey      String?  // AES-256-GCM encrypted
+
+  // SMTP Configuration
+  smtpHost          String?
+  smtpPort          Int?
+  smtpUsername      String?
+  smtpPassword      String?  // AES-256-GCM encrypted
+  smtpFromName      String?
+
+  // TextMagic SMS
+  textmagicUsername String?
+  textmagicApiKey   String?  // AES-256-GCM encrypted
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@map("user_settings")
 }

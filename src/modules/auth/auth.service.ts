@@ -27,6 +27,10 @@ const register = async (payload: { email: string; password: string }) => {
     },
   });
 
+  await prisma.userSettings.create({
+    data: { userId: user.id },
+  });
+
   const accessToken = generateToken({
     userId: user.id,
     email: user.email,
