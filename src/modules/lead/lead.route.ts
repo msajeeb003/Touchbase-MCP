@@ -4,6 +4,7 @@ import validateRequest from "../../shared/middleware/validateRequest";
 import { csvUpload } from "../../shared/config/upload";
 import { LeadController } from "./lead.controller";
 import { createLeadSchema, updateLeadSchema } from "./lead.validation";
+import { LeadTranscriptRoutes } from "../lead-transcript/lead-transcript.route";
 
 const router = Router();
 
@@ -33,5 +34,7 @@ router.patch(
 );
 
 router.delete("/:id", auth, LeadController.deleteLead);
+
+router.use("/:leadId/transcripts", LeadTranscriptRoutes);
 
 export const LeadRoutes = router;

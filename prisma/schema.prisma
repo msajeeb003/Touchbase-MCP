@@ -8,34 +8,55 @@ datasource db {
 }
 
 model User {
-  id           String        @id @default(uuid())
-  email        String        @unique
+  id           String           @id @default(uuid())
+  email        String           @unique
   passwordHash String
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
   settings     UserSettings?
   leads        Lead[]
+  transcripts  LeadTranscript[]
 
   @@map("users")
 }
 
 model Lead {
-  id            String   @id @default(uuid())
+  id            String           @id @default(uuid())
   userId        String
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   name          String
   email         String
   phone         String
   company       String
   location      String
-  status        String   @default("Processing")
+  status        String           @default("Processing")
   followUpStage String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  transcripts   LeadTranscript[]
 
   @@unique([userId, email])
   @@index([userId])
   @@map("leads")
+}
+
+model LeadTranscript {
+  id                String   @id @default(uuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  leadId            String
+  lead              Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  source            String
+  fathomRecordingId Int?
+  meetingTitle      String
+  meetingDate       DateTime
+  transcript        String   @db.Text
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([leadId])
+  @@index([userId])
+  @@map("lead_transcripts")
 }
 
 model UserSettings {
