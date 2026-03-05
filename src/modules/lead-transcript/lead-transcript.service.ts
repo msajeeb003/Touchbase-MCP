@@ -52,6 +52,7 @@ const getTranscripts = async (userId: string, leadId: string) => {
       meetingDate: true,
       createdAt: true,
       updatedAt: true,
+      transcript: true,
     },
   });
 };
