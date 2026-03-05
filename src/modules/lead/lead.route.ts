@@ -1,6 +1,7 @@
 import { Router } from "express";
 import auth from "../../shared/middleware/auth";
 import validateRequest from "../../shared/middleware/validateRequest";
+import { csvUpload } from "../../shared/config/upload";
 import { LeadController } from "./lead.controller";
 import { createLeadSchema, updateLeadSchema } from "./lead.validation";
 
@@ -11,6 +12,13 @@ router.post(
   auth,
   validateRequest(createLeadSchema),
   LeadController.createLead
+);
+
+router.post(
+  "/import-csv",
+  auth,
+  csvUpload.single("file"),
+  LeadController.importCSV
 );
 
 router.get("/", auth, LeadController.getLeads);

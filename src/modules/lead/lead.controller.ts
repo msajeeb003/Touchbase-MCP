@@ -2,6 +2,7 @@ import { Response } from "express";
 import { AuthRequest } from "../../shared/middleware/auth";
 import catchAsync from "../../shared/utils/catchAsync";
 import sendResponse from "../../shared/utils/sendResponse";
+import AppError from "../../shared/errors/AppError";
 import { LeadService } from "./lead.service";
 
 const createLead = catchAsync(async (req: AuthRequest, res: Response) => {
@@ -72,10 +73,27 @@ const deleteLead = catchAsync(async (req: AuthRequest, res: Response) => {
   });
 });
 
+const importCSV = catchAsync(async (req: AuthRequest, res: Response) => {
+  if (!req.file) {
+    throw new AppError(400, "CSV file is required");
+  }
+
+
+  const result = await LeadService.importCSV(req.user!.id, req.file.buffer);
+
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: `Import complete: ${result.success} added, ${result.failed} failed`,
+    data: result,
+  });
+});
+
 export const LeadController = {
   createLead,
   getLeads,
   getLeadById,
   updateLead,
   deleteLead,
+  importCSV,
 };
