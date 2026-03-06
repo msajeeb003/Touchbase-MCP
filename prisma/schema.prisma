@@ -8,14 +8,15 @@ datasource db {
 }
 
 model User {
-  id           String           @id @default(uuid())
-  email        String           @unique
-  passwordHash String
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
-  settings     UserSettings?
-  leads        Lead[]
-  transcripts  LeadTranscript[]
+  id              String           @id @default(uuid())
+  email           String           @unique
+  passwordHash    String
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  settings        UserSettings?
+  leads           Lead[]
+  transcripts     LeadTranscript[]
+  promptTemplates PromptTemplate[]
 
   @@map("users")
 }
@@ -57,6 +58,21 @@ model LeadTranscript {
   @@index([leadId])
   @@index([userId])
   @@map("lead_transcripts")
+}
+
+model PromptTemplate {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name          String
+  followUpStage String
+  promptText    String   @db.Text
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([userId, followUpStage])
+  @@index([userId])
+  @@map("prompt_templates")
 }
 
 model UserSettings {
