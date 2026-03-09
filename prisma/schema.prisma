@@ -17,6 +17,7 @@ model User {
   leads           Lead[]
   transcripts     LeadTranscript[]
   promptTemplates PromptTemplate[]
+  sequences       Sequence[]
 
   @@map("users")
 }
@@ -35,6 +36,7 @@ model Lead {
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
   transcripts   LeadTranscript[]
+  sequences     Sequence[]
 
   @@unique([userId, email])
   @@index([userId])
@@ -70,9 +72,50 @@ model PromptTemplate {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  sequences     Sequence[]
+
   @@unique([userId, followUpStage])
   @@index([userId])
   @@map("prompt_templates")
+}
+
+model Sequence {
+  id               String          @id @default(uuid())
+  userId           String
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  leadId           String
+  lead             Lead            @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  promptTemplateId String?
+  promptTemplate   PromptTemplate? @relation(fields: [promptTemplateId], references: [id], onDelete: SetNull)
+  name             String
+  totalSteps       Int
+  status           String          @default("draft")
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  steps            SequenceStep[]
+
+  @@index([userId])
+  @@index([leadId])
+  @@map("sequences")
+}
+
+model SequenceStep {
+  id          String    @id @default(uuid())
+  sequenceId  String
+  sequence    Sequence  @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  stepOrder   Int
+  stepType    String
+  subject     String?
+  content     String?   @db.Text
+  status      String    @default("pending")
+  scheduledAt DateTime
+  sentAt      DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([sequenceId, stepOrder])
+  @@index([sequenceId])
+  @@map("sequence_steps")
 }
 
 model UserSettings {
