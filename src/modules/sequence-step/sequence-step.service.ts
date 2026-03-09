@@ -221,6 +221,8 @@ const generateStepContent = async (
     },
   });
 
+  console.log({sequence});
+
   if (!sequence) {
     throw new AppError(404, "Sequence not found");
   }
