@@ -1,5 +1,8 @@
 import prisma from "../../shared/prisma";
 import AppError from "../../shared/errors/AppError";
+import { SettingsService } from "../settings/settings.service";
+import { generateContent } from "../../shared/services/ai.service";
+import { buildPrompt, parseAIResponse } from "../../shared/services/prompt-builder";
 import { CreateStepInput, UpdateStepInput } from "./sequence-step.validation";
 
 const verifySequenceOwnership = async (
@@ -205,10 +208,144 @@ const deleteStep = async (
   return null;
 };
 
+const generateStepContent = async (
+  userId: string,
+  sequenceId: string,
+  stepId: string
+) => {
+  const sequence = await prisma.sequence.findFirst({
+    where: { id: sequenceId, userId },
+    include: {
+      lead: true,
+      promptTemplate: true,
+    },
+  });
+
+  if (!sequence) {
+    throw new AppError(404, "Sequence not found");
+  }
+
+  if (sequence.status !== "draft") {
+    throw new AppError(400, "Content can only be generated for draft sequences");
+  }
+
+  if (!sequence.promptTemplate) {
+    throw new AppError(
+      400,
+      "No prompt template linked. Assign a prompt template to this sequence first."
+    );
+  }
+
+  const step = await prisma.sequenceStep.findFirst({
+    where: { id: stepId, sequenceId },
+  });
+
+  if (!step) {
+    throw new AppError(404, "Step not found");
+  }
+
+  if (step.stepOrder > 1) {
+    const immediatePreview = await prisma.sequenceStep.findFirst({
+      where: { sequenceId, stepOrder: step.stepOrder - 1 },
+    });
+
+    if (!immediatePreview || immediatePreview.status === "pending") {
+      throw new AppError(
+        400,
+        `Generate Step ${step.stepOrder - 1} first before generating Step ${step.stepOrder}`
+      );
+    }
+  }
+
+  const [aiProvider, aiApiKey, aiModel] = await Promise.all([
+    prisma.userSettings.findUnique({
+      where: { userId },
+      select: { aiProvider: true, aiModel: true },
+    }),
+    SettingsService.getDecryptedField(userId, "aiApiKey"),
+    null,
+  ]);
+
+  const provider = aiProvider?.aiProvider;
+  const model = aiProvider?.aiModel;
+
+  if (!provider || !aiApiKey) {
+    throw new AppError(
+      400,
+      "AI provider and API key not configured. Please set them in Settings."
+    );
+  }
+
+  const previousSteps = await prisma.sequenceStep.findMany({
+    where: {
+      sequenceId,
+      stepOrder: { lt: step.stepOrder },
+      status: { not: "pending" },
+    },
+    orderBy: { stepOrder: "asc" },
+    select: {
+      stepOrder: true,
+      stepType: true,
+      subject: true,
+      content: true,
+    },
+  });
+
+  const transcripts = await prisma.leadTranscript.findMany({
+    where: { leadId: sequence.leadId, userId },
+    orderBy: { meetingDate: "desc" },
+    select: { transcript: true },
+    take: 3,
+  });
+
+  const transcriptText =
+    transcripts.length > 0
+      ? transcripts.map((t) => t.transcript).join("\n\n---\n\n")
+      : null;
+
+  const prompt = buildPrompt({
+    promptText: sequence.promptTemplate.promptText,
+    stepContext: {
+      stepOrder: step.stepOrder,
+      totalSteps: sequence.totalSteps,
+      stepType: step.stepType,
+    },
+    previousSteps,
+    lead: {
+      name: sequence.lead.name,
+      email: sequence.lead.email,
+      company: sequence.lead.company,
+      followUpStage: sequence.lead.followUpStage,
+    },
+    transcript: transcriptText,
+  });
+
+  const aiResponse = await generateContent(
+    {
+      provider: provider as "openai" | "gemini",
+      apiKey: aiApiKey,
+      model: model || undefined,
+    },
+    prompt
+  );
+
+  const parsed = parseAIResponse(aiResponse.content, step.stepType);
+
+  return prisma.sequenceStep.update({
+    where: { id: stepId },
+    data: {
+      subject: parsed.subject,
+      content: parsed.content,
+      status: "draft",
+    },
+  });
+};
+
 export const SequenceStepService = {
   createStep,
   getSteps,
   getStepById,
   updateStep,
   deleteStep,
+  generateStepContent,
 };

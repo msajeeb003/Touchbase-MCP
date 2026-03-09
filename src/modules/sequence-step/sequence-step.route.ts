@@ -29,4 +29,6 @@ router.patch(
 
 router.delete("/:stepId", auth, SequenceStepController.deleteStep);
 
+router.post("/:stepId/generate", auth, SequenceStepController.generateStepContent);
+
 export const SequenceStepRoutes = router;
