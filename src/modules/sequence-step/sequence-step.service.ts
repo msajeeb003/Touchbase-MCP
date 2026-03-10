@@ -213,6 +213,8 @@ const generateStepContent = async (
   sequenceId: string,
   stepId: string
 ) => {
+
+  // STEP 1: Verify sequence ownership and status
   const sequence = await prisma.sequence.findFirst({
     where: { id: sequenceId, userId },
     include: {
@@ -221,7 +223,6 @@ const generateStepContent = async (
     },
   });
 
-  console.log({sequence});
 
   if (!sequence) {
     throw new AppError(404, "Sequence not found");
@@ -238,6 +239,7 @@ const generateStepContent = async (
     );
   }
 
+  // STEP 2: Verify step exists
   const step = await prisma.sequenceStep.findFirst({
     where: { id: stepId, sequenceId },
   });
@@ -246,6 +248,7 @@ const generateStepContent = async (
     throw new AppError(404, "Step not found");
   }
 
+  // STEP 3: Verify previous step is not pending
   if (step.stepOrder > 1) {
     const immediatePreview = await prisma.sequenceStep.findFirst({
       where: { sequenceId, stepOrder: step.stepOrder - 1 },
@@ -259,6 +262,7 @@ const generateStepContent = async (
     }
   }
 
+  // STEP 4: Get AI provider and API key
   const [aiProvider, aiApiKey, aiModel] = await Promise.all([
     prisma.userSettings.findUnique({
       where: { userId },
@@ -270,6 +274,7 @@ const generateStepContent = async (
 
   const provider = aiProvider?.aiProvider;
   const model = aiProvider?.aiModel;
+  console.log({provider, model});
 
   if (!provider || !aiApiKey) {
     throw new AppError(
@@ -278,6 +283,7 @@ const generateStepContent = async (
     );
   }
 
+  // STEP 5: Get previous steps
   const previousSteps = await prisma.sequenceStep.findMany({
     where: {
       sequenceId,
@@ -293,18 +299,23 @@ const generateStepContent = async (
     },
   });
 
+  console.log({previousSteps});
+  // STEP 6: Get transcripts
+  console.log(sequence.leadId , userId);
   const transcripts = await prisma.leadTranscript.findMany({
     where: { leadId: sequence.leadId, userId },
     orderBy: { meetingDate: "desc" },
     select: { transcript: true },
     take: 3,
   });
+  console.log({transcripts});
 
   const transcriptText =
     transcripts.length > 0
       ? transcripts.map((t) => t.transcript).join("\n\n---\n\n")
       : null;
-
+  console.log({transcriptText});
+  // STEP 7: Build prompt
   const prompt = buildPrompt({
     promptText: sequence.promptTemplate.promptText,
     stepContext: {
@@ -321,7 +332,9 @@ const generateStepContent = async (
     },
     transcript: transcriptText,
   });
+  console.log({prompt});
 
+  // STEP 8: Generate content
   const aiResponse = await generateContent(
     {
       provider: provider as "openai" | "gemini",
@@ -331,8 +344,10 @@ const generateStepContent = async (
     prompt
   );
 
+  // STEP 9: Parse AI response
   const parsed = parseAIResponse(aiResponse.content, step.stepType);
 
+  // STEP 10: Update step
   return prisma.sequenceStep.update({
     where: { id: stepId },
     data: {
