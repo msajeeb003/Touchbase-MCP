@@ -301,14 +301,12 @@ const generateStepContent = async (
 
   console.log({previousSteps});
   // STEP 6: Get transcripts
-  console.log(sequence.leadId , userId);
   const transcripts = await prisma.leadTranscript.findMany({
     where: { leadId: sequence.leadId, userId },
     orderBy: { meetingDate: "desc" },
     select: { transcript: true },
     take: 3,
   });
-  console.log({transcripts});
 
   const transcriptText =
     transcripts.length > 0
@@ -332,7 +330,6 @@ const generateStepContent = async (
     },
     transcript: transcriptText,
   });
-  console.log({prompt});
 
   // STEP 8: Generate content
   const aiResponse = await generateContent(
