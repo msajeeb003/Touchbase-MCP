@@ -93,6 +93,101 @@ const getSequenceById = async (userId: string, sequenceId: string) => {
   return sequence;
 };
 
+const activateSequence = async (userId: string, sequenceId: string) => {
+  const sequence = await getSequenceById(userId, sequenceId);
+
+  if (sequence.status !== "draft") {
+    throw new AppError(400, `Cannot activate a "${sequence.status}" sequence`);
+  }
+
+  const stepCount = await prisma.sequenceStep.count({
+    where: { sequenceId },
+  });
+
+  if (stepCount !== sequence.totalSteps) {
+    throw new AppError(
+      400,
+      `All ${sequence.totalSteps} steps must be created before activation (currently ${stepCount})`
+    );
+  }
+
+  const pendingSteps = await prisma.sequenceStep.count({
+    where: { sequenceId, status: "pending" },
+  });
+
+  if (pendingSteps > 0) {
+    throw new AppError(
+      400,
+      `${pendingSteps} step(s) have no content. Generate content for all steps before activation.`
+    );
+  }
+
+  const pastSteps = await prisma.sequenceStep.findMany({
+    where: {
+      sequenceId,
+      scheduledAt: { lte: new Date() },
+    },
+    select: { stepOrder: true },
+  });
+
+  if (pastSteps.length > 0) {
+    const orders = pastSteps.map((s) => s.stepOrder).join(", ");
+    throw new AppError(
+      400,
+      `Step(s) ${orders} have past scheduled dates. Update them before activation.`
+    );
+  }
+
+  return prisma.$transaction(async (tx) => {
+    await tx.sequenceStep.updateMany({
+      where: { sequenceId, status: "draft" },
+      data: { status: "scheduled" },
+    });
+
+    return tx.sequence.update({
+      where: { id: sequenceId },
+      data: { status: "active" },
+      include: {
+        lead: { select: { name: true, email: true, followUpStage: true } },
+        promptTemplate: { select: { id: true, name: true, followUpStage: true } },
+        steps: { orderBy: { stepOrder: "asc" } },
+      },
+    });
+  });
+};
+
+const cancelSequence = async (userId: string, sequenceId: string) => {
+  const sequence = await getSequenceById(userId, sequenceId);
+
+  const allowed = ALLOWED_TRANSITIONS[sequence.status] || [];
+  if (!allowed.includes("cancelled")) {
+    throw new AppError(
+      400,
+      `Cannot cancel a "${sequence.status}" sequence`
+    );
+  }
+
+  return prisma.$transaction(async (tx) => {
+    await tx.sequenceStep.updateMany({
+      where: {
+        sequenceId,
+        status: { in: ["pending", "draft", "scheduled"] },
+      },
+      data: { status: "skipped" },
+    });
+
+    return tx.sequence.update({
+      where: { id: sequenceId },
+      data: { status: "cancelled" },
+      include: {
+        lead: { select: { name: true, email: true, followUpStage: true } },
+        promptTemplate: { select: { id: true, name: true, followUpStage: true } },
+        steps: { orderBy: { stepOrder: "asc" } },
+      },
+    });
+  });
+};
+
 const updateSequence = async (
   userId: string,
   sequenceId: string,
@@ -101,6 +196,14 @@ const updateSequence = async (
   const sequence = await getSequenceById(userId, sequenceId);
 
   if (payload.status) {
+    if (payload.status === "active") {
+      return activateSequence(userId, sequenceId);
+    }
+
+    if (payload.status === "cancelled") {
+      return cancelSequence(userId, sequenceId);
+    }
+
     const allowed = ALLOWED_TRANSITIONS[sequence.status] || [];
     if (!allowed.includes(payload.status)) {
       throw new AppError(
