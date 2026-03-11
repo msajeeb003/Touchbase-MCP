@@ -1,6 +1,7 @@
 import app from "./app";
 import config from "./config";
 import prisma from "./shared/prisma";
+import { startSendProcessor } from "./shared/services/send-processor";
 
 async function main() {
   try {
@@ -9,6 +10,7 @@ async function main() {
 
     app.listen(config.port, () => {
       console.log(`Server is running on port ${config.port}`);
+      startSendProcessor();
     });
   } catch (error) {
     console.error("Failed to start server:", error);

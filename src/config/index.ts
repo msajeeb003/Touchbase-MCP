@@ -12,6 +12,7 @@ const config = {
     expires_in: process.env.JWT_EXPIRES_IN || "7d",
   },
   encryption_key: process.env.ENCRYPTION_KEY as string,
+  batch_size: Number(process.env.BATCH_SIZE) || 20,
 };
 
 export default config;
