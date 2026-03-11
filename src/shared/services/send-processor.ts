@@ -22,23 +22,19 @@ const processStep = async (step: {
       phone: string;
     };
   };
-}): Promise<{ success: boolean; error?: string }> => {
-
-  console.log({step});
-  console.log("step.sequence", step.sequence);
-
+}): Promise<{ success: boolean; log: string }> => {
   if (step.sequence.status !== "active") {
-    return { success: false, error: "Sequence no longer active" };
+    return { success: false, log: "Failed: Sequence no longer active" };
   }
 
   if (!step.content) {
-    return { success: false, error: "Step has no content" };
+    return { success: false, log: "Failed: Step has no content" };
   }
 
   try {
     if (step.stepType === "EMAIL") {
       if (!step.sequence.lead.email) {
-        return { success: false, error: "Lead has no email address" };
+        return { success: false, log: "Failed: Lead has no email address" };
       }
 
       await sendEmail(step.sequence.userId, {
@@ -46,9 +42,14 @@ const processStep = async (step: {
         subject: step.subject || "(No Subject)",
         text: step.content,
       });
+
+      return {
+        success: true,
+        log: `Email sent to ${step.sequence.lead.email}`,
+      };
     } else if (step.stepType === "SMS") {
       if (!step.sequence.lead.phone) {
-        return { success: false, error: "Lead has no phone number" };
+        return { success: false, log: "Failed: Lead has no phone number" };
       }
 
       await sendSms(
@@ -56,13 +57,18 @@ const processStep = async (step: {
         step.sequence.lead.phone,
         step.content
       );
+
+      return {
+        success: true,
+        log: `SMS sent to ${step.sequence.lead.phone}`,
+      };
     }
 
-    return { success: true };
+    return { success: false, log: "Failed: Unknown step type" };
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unknown send error";
-    return { success: false, error: message };
+    return { success: false, log: `Failed: ${message}` };
   }
 };
 
@@ -84,7 +90,6 @@ const checkSequenceCompletion = async (sequenceId: string) => {
 };
 
 const processDueSteps = async () => {
-  console.log("processDueSteps- ", new Date());
   if (isProcessing) {
     return;
   }
@@ -147,24 +152,25 @@ const processDueSteps = async () => {
       // process the step
       const result = await processStep(step);
 
-      // if the step is processed successfully, update the step status to sent
       if (result.success) {
         await prisma.sequenceStep.update({
           where: { id: step.id },
-          data: { status: "sent", sentAt: new Date() },
+          data: {
+            status: "sent",
+            sentAt: new Date(),
+            sendLog: result.log,
+          },
         });
-        console.log(
-          `[SendProcessor] Step ${step.id} (${step.stepType}) sent to ${step.sequence.lead.email || step.sequence.lead.phone}`
-        );
+        console.log(`[SendProcessor] ${result.log}`);
       } else {
-        // if the step is not processed successfully, update the step status to failed
         await prisma.sequenceStep.update({
           where: { id: step.id },
-          data: { status: "failed" },
+          data: {
+            status: "failed",
+            sendLog: result.log,
+          },
         });
-        console.log(
-          `[SendProcessor] Step ${step.id} failed: ${result.error}`
-        );
+        console.log(`[SendProcessor] Step ${step.id}: ${result.log}`);
       }
 
       affectedSequenceIds.add(step.sequenceId);
