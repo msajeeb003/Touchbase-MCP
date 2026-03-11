@@ -23,6 +23,10 @@ const processStep = async (step: {
     };
   };
 }): Promise<{ success: boolean; error?: string }> => {
+
+  console.log({step});
+  console.log("step.sequence", step.sequence);
+
   if (step.sequence.status !== "active") {
     return { success: false, error: "Sequence no longer active" };
   }
@@ -111,8 +115,6 @@ const processDueSteps = async () => {
         },
       },
     });
-    console.log({BATCH_SIZE});
-    console.log({dueSteps});
 
     if (dueSteps.length === 0) {
       return;
@@ -125,7 +127,6 @@ const processDueSteps = async () => {
 
     // process the steps
     const affectedSequenceIds = new Set<string>();
-    console.log({affectedSequenceIds});
 
     // loop through the steps and process them
     for (const step of dueSteps) {
@@ -134,8 +135,6 @@ const processDueSteps = async () => {
         where: { id: step.sequenceId },
         select: { status: true },
       });
-
-      console.log({freshSequence});
 
       // if the sequence is not active, skip the step
       if (freshSequence?.status !== "active") {
@@ -147,8 +146,6 @@ const processDueSteps = async () => {
 
       // process the step
       const result = await processStep(step);
-
-      console.log({result});
 
       // if the step is processed successfully, update the step status to sent
       if (result.success) {
