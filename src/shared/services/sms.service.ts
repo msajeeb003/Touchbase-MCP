@@ -38,7 +38,6 @@ export const sendSms = async (
   text: string
 ): Promise<void> => {
   const config = await getTextMagicConfig(userId);
-
   const response = await fetch(
     "https://rest.textmagic.com/api/v2/messages",
     {

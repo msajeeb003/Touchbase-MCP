@@ -55,7 +55,6 @@ export const sendEmail = async (
   options: EmailOptions
 ): Promise<void> => {
   const config = await getSmtpConfig(userId);
-  console.log("config", config);
   const transporter = nodemailer.createTransport({
     host: config.host,
     port: config.port,
