@@ -7,10 +7,10 @@ export const createLeadSchema = z.object({
       .string({ required_error: "Email is required" })
       .email("Invalid email format"),
     phone: z.string({ required_error: "Phone is required" }).min(1),
-    company: z.string({ required_error: "Company is required" }).min(1),
-    location: z.string({ required_error: "Location is required" }).min(1),
+    company: z.string().optional(),
+    location: z.string().optional(),
     status: z.string().optional(),
-    followUpStage: z.string().optional(),
+    followUpStage: z.string({ required_error: "Follow-up stage is required" }).min(1),
   }),
 });
 
