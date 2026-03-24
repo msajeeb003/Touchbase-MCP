@@ -21,7 +21,16 @@ const createLead = async (userId: string, payload: CreateLeadInput) => {
   }
 
   return prisma.lead.create({
-    data: { userId, ...payload },
+    data: {
+      userId,
+      name: payload.name,
+      email: payload.email,
+      phone: payload.phone,
+      followUpStage: payload.followUpStage,
+      company: payload.company ?? "",
+      location: payload.location ?? "",
+      status: payload.status ?? "Processing",
+    },
   });
 };
 
@@ -238,10 +247,10 @@ const importCSV = async (userId: string, fileBuffer: Buffer) => {
       name: row.name,
       email: row.email,
       phone: row.phone,
-      company: row.company,
-      location: row.location,
-      status: row.status || undefined,
-      followUpStage: row.followUpStage || undefined,
+      company: row.company || "",
+      location: row.location || "",
+      status: row.status || "Processing",
+      followUpStage: row.followUpStage || "New Lead",
     });
   }
 
@@ -249,7 +258,16 @@ const importCSV = async (userId: string, fileBuffer: Buffer) => {
 
   if (validLeads.length > 0) {
     const result = await prisma.lead.createMany({
-      data: validLeads.map((lead) => ({ userId, ...lead })),
+      data: validLeads.map((lead) => ({
+        userId,
+        name: lead.name,
+        email: lead.email,
+        phone: lead.phone,
+        followUpStage: lead.followUpStage,
+        company: lead.company ?? "",
+        location: lead.location ?? "",
+        status: lead.status ?? "Processing",
+      })),
       skipDuplicates: true,
     });
     successCount = result.count;

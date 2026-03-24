@@ -5,6 +5,7 @@ import { FathomRoutes } from "../../modules/fathom/fathom.route";
 import { LeadRoutes } from "../../modules/lead/lead.route";
 import { PromptTemplateRoutes } from "../../modules/prompt-template/prompt-template.route";
 import { SequenceRoutes } from "../../modules/sequence/sequence.route";
+import { DashboardRoutes } from "../../modules/dashboard/dashboard.route";
 
 const router = Router();
 
@@ -14,5 +15,6 @@ router.use("/fathom", FathomRoutes);
 router.use("/leads", LeadRoutes);
 router.use("/prompt-templates", PromptTemplateRoutes);
 router.use("/sequences", SequenceRoutes);
+router.use("/dashboard", DashboardRoutes);
 
 export default router;
