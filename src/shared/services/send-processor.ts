@@ -2,7 +2,7 @@ import cron from "node-cron";
 import prisma from "../prisma";
 import { sendEmail } from "./email.service";
 import { sendSms } from "./sms.service";
-import config from "@/config";
+import config from "../../config";
 
 const BATCH_SIZE = config.batch_size;
 let isProcessing = false;
