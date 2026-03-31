@@ -85,10 +85,27 @@ const deleteSequence = catchAsync(
   }
 );
 
+const generateSteps = catchAsync(
+  async (req: AuthRequest, res: Response) => {
+    const result = await SequenceService.generateSteps(
+      req.user!.id,
+      req.params.id as string
+    );
+
+    sendResponse(res, {
+      statusCode: 200,
+      success: true,
+      message: "Steps generated successfully",
+      data: result,
+    });
+  }
+);
+
 export const SequenceController = {
   createSequence,
   getSequences,
   getSequenceById,
   updateSequence,
   deleteSequence,
+  generateSteps,
 };

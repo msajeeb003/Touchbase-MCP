@@ -4,6 +4,9 @@ import {
   CreateSequenceInput,
   UpdateSequenceInput,
 } from "./sequence.validation";
+import { SettingsService } from "../settings/settings.service";
+import { generateContent } from "../../shared/services/ai.service";
+import { buildPrompt, parseAIResponse } from "../../shared/services/prompt-builder";
 
 const ALLOWED_TRANSITIONS: Record<string, string[]> = {
   draft: ["active", "cancelled"],
@@ -238,10 +241,277 @@ const deleteSequence = async (userId: string, sequenceId: string) => {
   });
 };
 
+const PLAN_EXTRACTION_PROMPT = (promptText: string, totalSteps: number) => `
+Analyze the following follow-up template and return a JSON object with exactly 2 keys:
+- "stepTypes": an array of exactly ${totalSteps} values, each must be "EMAIL" or "SMS". Infer the communication pattern from the template (e.g. email first, then sms, alternating, etc.).
+- "intervalDays": a positive integer representing the number of days between each step.
+
+Template:
+${promptText}
+
+Return ONLY raw JSON. No explanation, no markdown, no code block.
+`.trim();
+
+const extractPlanFromAI = async (
+  provider: string,
+  apiKey: string,
+  model: string | null | undefined,
+  promptText: string,
+  totalSteps: number
+): Promise<{ stepTypes: string[]; intervalDays: number }> => {
+  const prompt = PLAN_EXTRACTION_PROMPT(promptText, totalSteps);
+
+  const aiResponse = await generateContent(
+    {
+      provider: provider as "openai" | "gemini",
+      apiKey,
+      model: model || undefined,
+    },
+    prompt
+  );
+
+  const raw = aiResponse.content
+    .replace(/```json/gi, "")
+    .replace(/```/g, "")
+    .trim();
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new AppError(
+      502,
+      "AI returned an invalid plan. Please try again or adjust your prompt template."
+    );
+  }
+
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    !Array.isArray((parsed as Record<string, unknown>).stepTypes) ||
+    typeof (parsed as Record<string, unknown>).intervalDays !== "number"
+  ) {
+    throw new AppError(
+      502,
+      "AI plan response is missing required fields (stepTypes, intervalDays)."
+    );
+  }
+
+  const plan = parsed as { stepTypes: unknown[]; intervalDays: number };
+
+  const stepTypes = plan.stepTypes.map((t) => {
+    const normalized = String(t).toUpperCase().trim();
+    if (normalized !== "EMAIL" && normalized !== "SMS") {
+      throw new AppError(
+        502,
+        `AI returned invalid step type "${t}". Only EMAIL and SMS are allowed.`
+      );
+    }
+    return normalized;
+  });
+
+  if (stepTypes.length !== totalSteps) {
+    throw new AppError(
+      502,
+      `AI returned ${stepTypes.length} step types but sequence has ${totalSteps} steps.`
+    );
+  }
+
+  const intervalDays = Math.round(plan.intervalDays);
+  if (intervalDays < 1) {
+    throw new AppError(502, "AI returned an invalid intervalDays (must be >= 1).");
+  }
+
+  return { stepTypes, intervalDays };
+};
+
+const generateSteps = async (userId: string, sequenceId: string) => {
+  // 1. Load sequence with all relations
+  const sequence = await prisma.sequence.findFirst({
+    where: { id: sequenceId, userId },
+    include: {
+      lead: true,
+      promptTemplate: true,
+      steps: { orderBy: { stepOrder: "asc" } },
+    },
+  });
+
+  if (!sequence) throw new AppError(404, "Sequence not found");
+  if (sequence.status !== "draft") {
+    throw new AppError(400, "Steps can only be generated for draft sequences");
+  }
+  if (!sequence.promptTemplate) {
+    throw new AppError(
+      400,
+      "No prompt template linked. Assign a prompt template first."
+    );
+  }
+
+  // 2. Check AI settings upfront
+  const aiSettings = await prisma.userSettings.findUnique({
+    where: { userId },
+    select: { aiProvider: true, aiModel: true },
+  });
+  const aiApiKey = await SettingsService.getDecryptedField(userId, "aiApiKey");
+
+  if (!aiSettings?.aiProvider || !aiApiKey) {
+    throw new AppError(
+      400,
+      "AI provider and API key not configured. Please set them in Settings."
+    );
+  }
+
+  // 3. Extract plan from AI (stepTypes + intervalDays)
+  const { stepTypes, intervalDays } = await extractPlanFromAI(
+    aiSettings.aiProvider,
+    aiApiKey,
+    aiSettings.aiModel,
+    sequence.promptTemplate.promptText,
+    sequence.totalSteps
+  );
+
+  // 4. Determine which steps are missing
+  const existingOrders = new Set(sequence.steps.map((s) => s.stepOrder));
+  const missingOrders = Array.from(
+    { length: sequence.totalSteps },
+    (_, i) => i + 1
+  ).filter((order) => !existingOrders.has(order));
+
+  // 5. Calculate startDate for new steps
+  //    If existing steps present, base off last one; otherwise now + 6h
+  let baseDate: Date;
+  if (sequence.steps.length > 0) {
+    const lastStep = sequence.steps[sequence.steps.length - 1];
+    baseDate = new Date(lastStep.scheduledAt);
+  } else {
+    baseDate = new Date();
+    baseDate.setHours(baseDate.getHours() + 6);
+  }
+
+  // 6. Create missing steps
+  if (missingOrders.length > 0) {
+    const newSteps = missingOrders.map((order) => {
+      const scheduledAt = new Date(baseDate);
+      // offset from base by how many positions away this order is from the last existing step
+      const offset = sequence.steps.length > 0
+        ? order - sequence.steps[sequence.steps.length - 1].stepOrder
+        : order - 1;
+      scheduledAt.setDate(scheduledAt.getDate() + offset * intervalDays);
+
+      return {
+        sequenceId,
+        stepOrder: order,
+        stepType: stepTypes[order - 1],
+        scheduledAt,
+      };
+    });
+
+    await prisma.sequenceStep.createMany({ data: newSteps });
+  }
+
+  // 7. Reload all steps after creation
+  const allSteps = await prisma.sequenceStep.findMany({
+    where: { sequenceId },
+    orderBy: { stepOrder: "asc" },
+  });
+
+  // 8. Generate content for all pending steps sequentially
+  const results: { stepOrder: number; status: string; error?: string }[] = [];
+
+  for (const step of allSteps) {
+    if (step.status !== "pending") {
+      results.push({ stepOrder: step.stepOrder, status: "skipped" });
+      continue;
+    }
+
+    try {
+      const previousSteps = await prisma.sequenceStep.findMany({
+        where: {
+          sequenceId,
+          stepOrder: { lt: step.stepOrder },
+          status: { not: "pending" },
+        },
+        orderBy: { stepOrder: "asc" },
+        select: { stepOrder: true, stepType: true, subject: true, content: true },
+      });
+
+      const transcripts = await prisma.leadTranscript.findMany({
+        where: { leadId: sequence.leadId, userId },
+        orderBy: { meetingDate: "desc" },
+        select: { transcript: true },
+        take: 3,
+      });
+
+      const transcriptText =
+        transcripts.length > 0
+          ? transcripts.map((t) => t.transcript).join("\n\n---\n\n")
+          : null;
+
+      const prompt = buildPrompt({
+        promptText: sequence.promptTemplate!.promptText,
+        stepContext: {
+          stepOrder: step.stepOrder,
+          totalSteps: sequence.totalSteps,
+          stepType: step.stepType,
+        },
+        previousSteps,
+        lead: {
+          name: sequence.lead.name,
+          email: sequence.lead.email,
+          company: sequence.lead.company,
+          followUpStage: sequence.lead.followUpStage,
+        },
+        transcript: transcriptText,
+      });
+
+      const aiResponse = await generateContent(
+        {
+          provider: aiSettings.aiProvider as "openai" | "gemini",
+          apiKey: aiApiKey,
+          model: aiSettings.aiModel || undefined,
+        },
+        prompt
+      );
+
+      const parsedContent = parseAIResponse(aiResponse.content, step.stepType);
+
+      await prisma.sequenceStep.update({
+        where: { id: step.id },
+        data: {
+          subject: parsedContent.subject,
+          content: parsedContent.content,
+          status: "draft",
+        },
+      });
+
+      results.push({ stepOrder: step.stepOrder, status: "generated" });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      results.push({ stepOrder: step.stepOrder, status: "failed", error: message });
+    }
+  }
+
+  // 9. Return updated sequence with steps
+  const updatedSequence = await prisma.sequence.findFirst({
+    where: { id: sequenceId },
+    include: {
+      lead: { select: { name: true, email: true, followUpStage: true } },
+      promptTemplate: { select: { id: true, name: true, followUpStage: true } },
+      steps: { orderBy: { stepOrder: "asc" } },
+    },
+  });
+
+  return {
+    sequence: updatedSequence,
+    generationResults: results,
+  };
+};
+
 export const SequenceService = {
   createSequence,
   getSequences,
   getSequenceById,
   updateSequence,
   deleteSequence,
+  generateSteps,
 };

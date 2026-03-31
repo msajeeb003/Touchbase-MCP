@@ -30,6 +30,8 @@ router.patch(
 
 router.delete("/:id", auth, SequenceController.deleteSequence);
 
+router.post("/:id/generate-steps", auth, SequenceController.generateSteps);
+
 router.use("/:sequenceId/steps", SequenceStepRoutes);
 
 export const SequenceRoutes = router;
