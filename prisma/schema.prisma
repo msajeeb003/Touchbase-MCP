@@ -27,8 +27,9 @@ model Lead {
   userId        String
   user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   name          String
-  email         String
-  phone         String
+  email         String?
+  phone         String?
+  notes         String?
   company       String
   location      String
   status        String           @default("Processing")

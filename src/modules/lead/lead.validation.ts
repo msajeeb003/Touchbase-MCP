@@ -1,12 +1,49 @@
 import { z } from "zod";
 
+const emptyToUndefined = (val: unknown) =>
+  val === "" || val === null || val === undefined ? undefined : val;
+
+const optionalEmail = z.preprocess(
+  emptyToUndefined,
+  z.string().email("Invalid email format").optional()
+);
+
+const optionalPhone = z.preprocess(
+  emptyToUndefined,
+  z.string().min(1).optional()
+);
+
+const optionalNotes = z.preprocess(
+  emptyToUndefined,
+  z.string().optional()
+);
+
+const patchEmptyToUndefined = (val: unknown) =>
+  val === "" || val === undefined ? undefined : val;
+
+const optionalEmailPatch = z.preprocess(
+  patchEmptyToUndefined,
+  z
+    .union([z.string().email("Invalid email format"), z.null()])
+    .optional()
+);
+
+const optionalPhonePatch = z.preprocess(
+  patchEmptyToUndefined,
+  z.union([z.string().min(1), z.null()]).optional()
+);
+
+const optionalNotesPatch = z.preprocess(
+  patchEmptyToUndefined,
+  z.union([z.string(), z.null()]).optional()
+);
+
 export const createLeadSchema = z.object({
   body: z.object({
     name: z.string({ required_error: "Name is required" }).min(1),
-    email: z
-      .string({ required_error: "Email is required" })
-      .email("Invalid email format"),
-    phone: z.string({ required_error: "Phone is required" }).min(1),
+    email: optionalEmail,
+    phone: optionalPhone,
+    notes: optionalNotes,
     company: z.string().optional(),
     location: z.string().optional(),
     status: z.string().optional(),
@@ -17,8 +54,9 @@ export const createLeadSchema = z.object({
 export const updateLeadSchema = z.object({
   body: z.object({
     name: z.string().min(1).optional(),
-    email: z.string().email("Invalid email format").optional(),
-    phone: z.string().min(1).optional(),
+    email: optionalEmailPatch,
+    phone: optionalPhonePatch,
+    notes: optionalNotesPatch,
     company: z.string().min(1).optional(),
     location: z.string().min(1).optional(),
     status: z.string().optional(),

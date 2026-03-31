@@ -18,8 +18,8 @@ const processStep = async (step: {
     status: string;
     lead: {
       name: string;
-      email: string;
-      phone: string;
+      email: string | null;
+      phone: string | null;
     };
   };
 }): Promise<{ success: boolean; log: string }> => {

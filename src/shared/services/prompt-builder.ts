@@ -13,7 +13,7 @@ interface PreviousStep {
 
 interface LeadInfo {
   name: string;
-  email: string;
+  email: string | null;
   company: string;
   followUpStage: string | null;
 }
@@ -76,7 +76,7 @@ export const buildPrompt = (params: BuildPromptParams): string => {
 
   prompt += `\n\n--- LEAD INFO ---`;
   prompt += `\nName: ${lead.name}`;
-  prompt += `\nEmail: ${lead.email}`;
+  prompt += `\nEmail: ${lead.email ?? "(not provided)"}`;
   prompt += `\nCompany: ${lead.company}`;
   if (lead.followUpStage) {
     prompt += `\nFollow-up Stage: ${lead.followUpStage}`;

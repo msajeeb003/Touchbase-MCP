@@ -1,4 +1,5 @@
 import { parse } from "csv-parse/sync";
+import type { Prisma } from "@prisma/client";
 import prisma from "../../shared/prisma";
 import AppError from "../../shared/errors/AppError";
 import { CreateLeadInput, UpdateLeadInput } from "./lead.validation";
@@ -12,25 +13,28 @@ type LeadQuery = {
 };
 
 const createLead = async (userId: string, payload: CreateLeadInput) => {
-  const existing = await prisma.lead.findUnique({
-    where: { userId_email: { userId, email: payload.email } },
-  });
+  if (payload.email) {
+    const existing = await prisma.lead.findFirst({
+      where: { userId, email: payload.email },
+    });
 
-  if (existing) {
-    throw new AppError(409, "A lead with this email already exists");
+    if (existing) {
+      throw new AppError(409, "A lead with this email already exists");
+    }
   }
 
   return prisma.lead.create({
     data: {
       userId,
       name: payload.name,
-      email: payload.email,
-      phone: payload.phone,
+      email: payload.email ?? null,
+      phone: payload.phone ?? null,
+      notes: payload.notes ?? null,
       followUpStage: payload.followUpStage,
       company: payload.company ?? "",
       location: payload.location ?? "",
       status: payload.status ?? "Processing",
-    },
+    } as Prisma.LeadUncheckedCreateInput,
   });
 };
 
@@ -111,9 +115,22 @@ const updateLead = async (
     }
   }
 
+  const data: Record<string, unknown> = {};
+
+  if (payload.name !== undefined) data.name = payload.name;
+  if (payload.email !== undefined) data.email = payload.email ?? null;
+  if (payload.phone !== undefined) data.phone = payload.phone ?? null;
+  if (payload.notes !== undefined) data.notes = payload.notes ?? null;
+  if (payload.company !== undefined) data.company = payload.company;
+  if (payload.location !== undefined) data.location = payload.location;
+  if (payload.status !== undefined) data.status = payload.status;
+  if (payload.followUpStage !== undefined) {
+    data.followUpStage = payload.followUpStage;
+  }
+
   return prisma.lead.update({
     where: { id: leadId },
-    data: payload,
+    data: data as Parameters<typeof prisma.lead.update>[0]["data"],
   });
 };
 
@@ -131,6 +148,7 @@ const COLUMN_MAP: Record<string, string> = {
   name: "name",
   email: "email",
   phone: "phone",
+  notes: "notes",
   company: "company",
   location: "location",
   status: "status",
@@ -171,9 +189,12 @@ const importCSV = async (userId: string, fileBuffer: Buffer) => {
       columns: true,
       skip_empty_lines: true,
       trim: true,
+      relax_column_count: true,
     });
-  } catch {
-    throw new AppError(400, "Invalid CSV format");
+    console.log({records});
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : "unknown parse error";
+    throw new AppError(400, `Invalid CSV format: ${detail}`);
   }
 
   
@@ -190,7 +211,9 @@ const importCSV = async (userId: string, fileBuffer: Buffer) => {
     select: { email: true },
   });
   const existingEmails = new Set(
-    existingLeads.map((l) => l.email.toLowerCase())
+    existingLeads
+      .filter((l): l is { email: string } => l.email != null)
+      .map((l) => l.email.toLowerCase())
   );
   
 
@@ -202,18 +225,16 @@ const importCSV = async (userId: string, fileBuffer: Buffer) => {
     const rowNum = i + 2; // +2 for header row + 0-index
     const row = normalizeColumns(records[i]);
 
-    const required = ["name", "email", "phone", "company", "location"];
-    const missing = required.filter((f) => !row[f]);
-    if (missing.length > 0) {
+    if (!row.name) {
       errors.push({
         row: rowNum,
         email: row.email || "",
-        reason: `Missing fields: ${missing.join(", ")}`,
+        reason: "Missing required field: name",
       });
       continue;
     }
 
-    if (!isValidEmail(row.email)) {
+    if (row.email && !isValidEmail(row.email)) {
       errors.push({
         row: rowNum,
         email: row.email,
@@ -222,31 +243,35 @@ const importCSV = async (userId: string, fileBuffer: Buffer) => {
       continue;
     }
 
-    const emailLower = row.email.toLowerCase();
+    if (row.email) {
+      const emailLower = row.email.toLowerCase();
 
-    if (seenEmails.has(emailLower)) {
-      errors.push({
-        row: rowNum,
-        email: row.email,
-        reason: "Duplicate email in CSV",
-      });
-      continue;
+      if (seenEmails.has(emailLower)) {
+        errors.push({
+          row: rowNum,
+          email: row.email,
+          reason: "Duplicate email in CSV",
+        });
+        continue;
+      }
+
+      if (existingEmails.has(emailLower)) {
+        errors.push({
+          row: rowNum,
+          email: row.email,
+          reason: "Email already exists",
+        });
+        continue;
+      }
+
+      seenEmails.add(emailLower);
     }
 
-    if (existingEmails.has(emailLower)) {
-      errors.push({
-        row: rowNum,
-        email: row.email,
-        reason: "Email already exists",
-      });
-      continue;
-    }
-
-    seenEmails.add(emailLower);
     validLeads.push({
       name: row.name,
-      email: row.email,
-      phone: row.phone,
+      email: row.email || undefined,
+      phone: row.phone || undefined,
+      notes: row.notes || undefined,
       company: row.company || "",
       location: row.location || "",
       status: row.status || "Processing",
@@ -261,13 +286,14 @@ const importCSV = async (userId: string, fileBuffer: Buffer) => {
       data: validLeads.map((lead) => ({
         userId,
         name: lead.name,
-        email: lead.email,
-        phone: lead.phone,
+        email: lead.email ?? null,
+        phone: lead.phone ?? null,
+        notes: lead.notes ?? null,
         followUpStage: lead.followUpStage,
         company: lead.company ?? "",
         location: lead.location ?? "",
         status: lead.status ?? "Processing",
-      })),
+      })) as Prisma.LeadCreateManyInput[],
       skipDuplicates: true,
     });
     successCount = result.count;
