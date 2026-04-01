@@ -14,17 +14,33 @@ interface PreviousStep {
 interface LeadInfo {
   name: string;
   email: string | null;
+  phone?: string | null;
   company: string;
+  location?: string | null;
   followUpStage: string | null;
+  notes?: string | null;
 }
 
 interface BuildPromptParams {
   promptText: string;
+  sequenceName?: string;
   stepContext: StepContext;
   previousSteps: PreviousStep[];
   lead: LeadInfo;
   transcript: string | null;
 }
+
+const resolveVariables = (text: string, lead: LeadInfo, sequenceName?: string): string => {
+  return text
+    .replace(/\{\{lead\.name\}\}/gi, lead.name || "")
+    .replace(/\{\{lead\.email\}\}/gi, lead.email || "(not provided)")
+    .replace(/\{\{lead\.phone\}\}/gi, lead.phone || "(not provided)")
+    .replace(/\{\{lead\.company\}\}/gi, lead.company || "")
+    .replace(/\{\{lead\.location\}\}/gi, lead.location || "(not provided)")
+    .replace(/\{\{lead\.followUpStage\}\}/gi, lead.followUpStage || "")
+    .replace(/\{\{lead\.notes\}\}/gi, lead.notes || "")
+    .replace(/\{\{sequence\.name\}\}/gi, sequenceName || "");
+};
 
 const getPositionHint = (stepOrder: number, totalSteps: number): string => {
   if (stepOrder === 1) return "First message — warm, friendly, introductory.";
@@ -51,14 +67,15 @@ const formatPreviousSteps = (steps: PreviousStep[]): string => {
 };
 
 export const buildPrompt = (params: BuildPromptParams): string => {
-  const { promptText, stepContext, previousSteps, lead, transcript } = params;
+  const { promptText, sequenceName, stepContext, previousSteps, lead, transcript } = params;
 
   const positionHint = getPositionHint(
     stepContext.stepOrder,
     stepContext.totalSteps
   );
 
-  let prompt = promptText;
+  // Replace {{variables}} in the promptText with actual lead/sequence data
+  let prompt = resolveVariables(promptText, lead, sequenceName);
 
   prompt += `\n\n--- STEP CONTEXT ---`;
   prompt += `\nStep: ${stepContext.stepOrder} of ${stepContext.totalSteps}`;
@@ -77,10 +94,11 @@ export const buildPrompt = (params: BuildPromptParams): string => {
   prompt += `\n\n--- LEAD INFO ---`;
   prompt += `\nName: ${lead.name}`;
   prompt += `\nEmail: ${lead.email ?? "(not provided)"}`;
+  if (lead.phone) prompt += `\nPhone: ${lead.phone}`;
   prompt += `\nCompany: ${lead.company}`;
-  if (lead.followUpStage) {
-    prompt += `\nFollow-up Stage: ${lead.followUpStage}`;
-  }
+  if (lead.location) prompt += `\nLocation: ${lead.location}`;
+  if (lead.followUpStage) prompt += `\nFollow-up Stage: ${lead.followUpStage}`;
+  if (lead.notes) prompt += `\nNotes: ${lead.notes}`;
 
   if (transcript) {
     prompt += `\n\n--- TRANSCRIPT ---\n${transcript}`;

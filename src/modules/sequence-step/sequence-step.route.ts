@@ -18,6 +18,12 @@ router.post(
 
 router.get("/", auth, SequenceStepController.getSteps);
 
+router.post(
+  "/regenerate-all",
+  auth,
+  SequenceStepController.regenerateAllStepsContent
+);
+
 router.get("/:stepId", auth, SequenceStepController.getStepById);
 
 router.patch(

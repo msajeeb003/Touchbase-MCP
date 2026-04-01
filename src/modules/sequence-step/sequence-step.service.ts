@@ -316,6 +316,7 @@ const generateStepContent = async (
   // STEP 7: Build prompt
   const prompt = buildPrompt({
     promptText: sequence.promptTemplate.promptText,
+    sequenceName: sequence.name,
     stepContext: {
       stepOrder: step.stepOrder,
       totalSteps: sequence.totalSteps,
@@ -325,8 +326,11 @@ const generateStepContent = async (
     lead: {
       name: sequence.lead.name,
       email: sequence.lead.email,
+      phone: sequence.lead.phone,
       company: sequence.lead.company,
+      location: sequence.lead.location,
       followUpStage: sequence.lead.followUpStage,
+      notes: sequence.lead.notes,
     },
     transcript: transcriptText,
   });
@@ -356,6 +360,43 @@ const generateStepContent = async (
   });
 };
 
+const regenerateAllStepsContent = async (userId: string, sequenceId: string) => {
+  const steps = await prisma.sequenceStep.findMany({
+    where: { sequenceId },
+    orderBy: { stepOrder: "asc" },
+    select: { id: true, stepOrder: true },
+  });
+
+  if (steps.length === 0) {
+    throw new AppError(400, "No steps to regenerate");
+  }
+
+  const results: { stepOrder: number; status: string; error?: string }[] = [];
+
+  for (const s of steps) {
+    try {
+      await generateStepContent(userId, sequenceId, s.id);
+      results.push({ stepOrder: s.stepOrder, status: "generated" });
+      console.log({results});
+    } catch (err) {
+      const message =
+        err instanceof AppError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : "Unknown error";
+      results.push({ stepOrder: s.stepOrder, status: "failed", error: message });
+    }
+  }
+
+  const updatedSteps = await prisma.sequenceStep.findMany({
+    where: { sequenceId },
+    orderBy: { stepOrder: "asc" },
+  });
+
+  return { steps: updatedSteps, results };
+};
+
 export const SequenceStepService = {
   createStep,
   getSteps,
@@ -363,4 +404,5 @@ export const SequenceStepService = {
   updateStep,
   deleteStep,
   generateStepContent,
+  regenerateAllStepsContent,
 };

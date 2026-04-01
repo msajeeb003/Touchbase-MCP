@@ -106,6 +106,22 @@ const generateStepContent = catchAsync(
   }
 );
 
+const regenerateAllStepsContent = catchAsync(
+  async (req: AuthRequest, res: Response) => {
+    const result = await SequenceStepService.regenerateAllStepsContent(
+      req.user!.id,
+      req.params.sequenceId as string
+    );
+
+    sendResponse(res, {
+      statusCode: 200,
+      success: true,
+      message: "Bulk step content regeneration finished",
+      data: result,
+    });
+  }
+);
+
 export const SequenceStepController = {
   createStep,
   getSteps,
@@ -113,4 +129,5 @@ export const SequenceStepController = {
   updateStep,
   deleteStep,
   generateStepContent,
+  regenerateAllStepsContent,
 };

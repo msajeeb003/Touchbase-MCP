@@ -336,6 +336,7 @@ const generateSteps = async (userId: string, sequenceId: string) => {
     },
   });
 
+
   if (!sequence) throw new AppError(404, "Sequence not found");
   if (sequence.status !== "draft") {
     throw new AppError(400, "Steps can only be generated for draft sequences");
@@ -377,6 +378,7 @@ const generateSteps = async (userId: string, sequenceId: string) => {
     (_, i) => i + 1
   ).filter((order) => !existingOrders.has(order));
 
+
   // 5. Calculate startDate for new steps
   //    If existing steps present, base off last one; otherwise now + 6h
   let baseDate: Date;
@@ -387,6 +389,7 @@ const generateSteps = async (userId: string, sequenceId: string) => {
     baseDate = new Date();
     baseDate.setHours(baseDate.getHours() + 6);
   }
+
 
   // 6. Create missing steps
   if (missingOrders.length > 0) {
@@ -414,6 +417,7 @@ const generateSteps = async (userId: string, sequenceId: string) => {
     where: { sequenceId },
     orderBy: { stepOrder: "asc" },
   });
+
 
   // 8. Generate content for all pending steps sequentially
   const results: { stepOrder: number; status: string; error?: string }[] = [];
@@ -447,8 +451,10 @@ const generateSteps = async (userId: string, sequenceId: string) => {
           ? transcripts.map((t) => t.transcript).join("\n\n---\n\n")
           : null;
 
+
       const prompt = buildPrompt({
         promptText: sequence.promptTemplate!.promptText,
+        sequenceName: sequence.name,
         stepContext: {
           stepOrder: step.stepOrder,
           totalSteps: sequence.totalSteps,
@@ -458,8 +464,11 @@ const generateSteps = async (userId: string, sequenceId: string) => {
         lead: {
           name: sequence.lead.name,
           email: sequence.lead.email,
+          phone: sequence.lead.phone,
           company: sequence.lead.company,
+          location: sequence.lead.location,
           followUpStage: sequence.lead.followUpStage,
+          notes: sequence.lead.notes,
         },
         transcript: transcriptText,
       });
@@ -473,7 +482,9 @@ const generateSteps = async (userId: string, sequenceId: string) => {
         prompt
       );
 
+
       const parsedContent = parseAIResponse(aiResponse.content, step.stepType);
+
 
       await prisma.sequenceStep.update({
         where: { id: step.id },
