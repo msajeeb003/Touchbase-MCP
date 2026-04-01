@@ -274,7 +274,6 @@ const generateStepContent = async (
 
   const provider = aiProvider?.aiProvider;
   const model = aiProvider?.aiModel;
-  // console.log({provider, model});
 
   if (!provider || !aiApiKey) {
     throw new AppError(
@@ -299,7 +298,6 @@ const generateStepContent = async (
     },
   });
 
-  // console.log({previousSteps});
   // STEP 6: Get transcripts
   const transcripts = await prisma.leadTranscript.findMany({
     where: { leadId: sequence.leadId, userId },
@@ -312,7 +310,6 @@ const generateStepContent = async (
     transcripts.length > 0
       ? transcripts.map((t) => t.transcript).join("\n\n---\n\n")
       : null;
-  // console.log({transcriptText});
   // STEP 7: Build prompt
   const prompt = buildPrompt({
     promptText: sequence.promptTemplate.promptText,
@@ -335,7 +332,6 @@ const generateStepContent = async (
     transcript: transcriptText,
   });
 
-  // console.log({prompt});
   // STEP 8: Generate content
   const aiResponse = await generateContent(
     {
@@ -377,7 +373,6 @@ const regenerateAllStepsContent = async (userId: string, sequenceId: string) => 
     try {
       await generateStepContent(userId, sequenceId, s.id);
       results.push({ stepOrder: s.stepOrder, status: "generated" });
-      console.log({results});
     } catch (err) {
       const message =
         err instanceof AppError
