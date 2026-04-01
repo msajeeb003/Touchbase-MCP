@@ -89,6 +89,22 @@ const deleteStep = catchAsync(
   }
 );
 
+const deleteAllSteps = catchAsync(
+  async (req: AuthRequest, res: Response) => {
+    const result = await SequenceStepService.deleteAllSteps(
+      req.user!.id,
+      req.params.sequenceId as string
+    );
+
+    sendResponse(res, {
+      statusCode: 200,
+      success: true,
+      message: `Deleted ${result.deletedCount} step(s)`,
+      data: result,
+    });
+  }
+);
+
 const generateStepContent = catchAsync(
   async (req: AuthRequest, res: Response) => {
     const result = await SequenceStepService.generateStepContent(
@@ -128,6 +144,7 @@ export const SequenceStepController = {
   getStepById,
   updateStep,
   deleteStep,
+  deleteAllSteps,
   generateStepContent,
   regenerateAllStepsContent,
 };

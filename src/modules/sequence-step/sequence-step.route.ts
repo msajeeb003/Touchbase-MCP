@@ -24,6 +24,8 @@ router.post(
   SequenceStepController.regenerateAllStepsContent
 );
 
+router.delete("/delete-all", auth, SequenceStepController.deleteAllSteps);
+
 router.get("/:stepId", auth, SequenceStepController.getStepById);
 
 router.patch(

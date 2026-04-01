@@ -208,6 +208,20 @@ const deleteStep = async (
   return null;
 };
 
+const deleteAllSteps = async (userId: string, sequenceId: string) => {
+  const sequence = await verifySequenceOwnership(userId, sequenceId);
+
+  if (sequence.status !== "draft") {
+    throw new AppError(400, "Steps can only be deleted from draft sequences");
+  }
+
+  const result = await prisma.sequenceStep.deleteMany({
+    where: { sequenceId },
+  });
+
+  return { deletedCount: result.count };
+};
+
 const generateStepContent = async (
   userId: string,
   sequenceId: string,
@@ -398,6 +412,7 @@ export const SequenceStepService = {
   getStepById,
   updateStep,
   deleteStep,
+  deleteAllSteps,
   generateStepContent,
   regenerateAllStepsContent,
 };
