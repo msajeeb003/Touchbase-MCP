@@ -2,7 +2,11 @@ import { parse } from "csv-parse/sync";
 import type { Prisma } from "@prisma/client";
 import prisma from "../../shared/prisma";
 import AppError from "../../shared/errors/AppError";
-import { CreateLeadInput, UpdateLeadInput } from "./lead.validation";
+import {
+  BulkDeleteLeadsInput,
+  CreateLeadInput,
+  UpdateLeadInput,
+} from "./lead.validation";
 
 type LeadQuery = {
   page?: number;
@@ -140,6 +144,21 @@ const deleteLead = async (userId: string, leadId: string) => {
   return prisma.lead.delete({
     where: { id: leadId },
   });
+};
+
+const deleteManyLeads = async (userId: string, payload: BulkDeleteLeadsInput) => {
+  const uniqueIds = [...new Set(payload.leadIds)];
+  // console.log({uniqueIds});
+
+  const result = await prisma.lead.deleteMany({
+    where: { userId, id: { in: uniqueIds } },
+  });
+
+  return {
+    deletedCount: result.count,
+    requestedCount: uniqueIds.length,
+    skippedCount: uniqueIds.length - result.count,
+  };
 };
 
 const MAX_CSV_ROWS = 1000;
@@ -313,5 +332,6 @@ export const LeadService = {
   getLeadById,
   updateLead,
   deleteLead,
+  deleteManyLeads,
   importCSV,
 };

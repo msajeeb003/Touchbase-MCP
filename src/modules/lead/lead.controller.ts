@@ -73,6 +73,17 @@ const deleteLead = catchAsync(async (req: AuthRequest, res: Response) => {
   });
 });
 
+const deleteManyLeads = catchAsync(async (req: AuthRequest, res: Response) => {
+  const result = await LeadService.deleteManyLeads(req.user!.id, req.body);
+
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: `${result.deletedCount} lead(s) deleted`,
+    data: result,
+  });
+});
+
 const importCSV = catchAsync(async (req: AuthRequest, res: Response) => {
   if (!req.file) {
     throw new AppError(400, "CSV file is required");
@@ -95,5 +106,6 @@ export const LeadController = {
   getLeadById,
   updateLead,
   deleteLead,
+  deleteManyLeads,
   importCSV,
 };

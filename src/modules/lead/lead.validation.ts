@@ -51,6 +51,15 @@ export const createLeadSchema = z.object({
   }),
 });
 
+export const bulkDeleteLeadsSchema = z.object({
+  body: z.object({
+    leadIds: z
+      .array(z.string().uuid("Invalid lead ID"))
+      .min(1, "At least one lead ID is required")
+      .max(200, "Maximum 200 leads per request"),
+  }),
+});
+
 export const updateLeadSchema = z.object({
   body: z.object({
     name: z.string().min(1).optional(),
@@ -65,4 +74,5 @@ export const updateLeadSchema = z.object({
 });
 
 export type CreateLeadInput = z.infer<typeof createLeadSchema>["body"];
+export type BulkDeleteLeadsInput = z.infer<typeof bulkDeleteLeadsSchema>["body"];
 export type UpdateLeadInput = z.infer<typeof updateLeadSchema>["body"];

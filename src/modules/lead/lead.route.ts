@@ -3,7 +3,11 @@ import auth from "../../shared/middleware/auth";
 import validateRequest from "../../shared/middleware/validateRequest";
 import { csvUpload } from "../../shared/config/upload";
 import { LeadController } from "./lead.controller";
-import { createLeadSchema, updateLeadSchema } from "./lead.validation";
+import {
+  bulkDeleteLeadsSchema,
+  createLeadSchema,
+  updateLeadSchema,
+} from "./lead.validation";
 import { LeadTranscriptRoutes } from "../lead-transcript/lead-transcript.route";
 
 const router = Router();
@@ -24,6 +28,13 @@ router.post(
 
 router.get("/", auth, LeadController.getLeads);
 
+router.post(
+  "/bulk-delete",
+  auth,
+  validateRequest(bulkDeleteLeadsSchema),
+  LeadController.deleteManyLeads
+);
+
 router.get("/:id", auth, LeadController.getLeadById);
 
 router.patch(
@@ -31,6 +42,13 @@ router.patch(
   auth,
   validateRequest(updateLeadSchema),
   LeadController.updateLead
+);
+
+router.delete(
+  "/bulk-delete",
+  auth,
+  validateRequest(bulkDeleteLeadsSchema),
+  LeadController.deleteManyLeads
 );
 
 router.delete("/:id", auth, LeadController.deleteLead);
