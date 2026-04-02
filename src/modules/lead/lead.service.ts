@@ -1,6 +1,21 @@
 import { parse } from "csv-parse/sync";
 import type { Prisma } from "@prisma/client";
 import prisma from "../../shared/prisma";
+
+/** Lead is "Active" iff this lead has at least one sequence with status "active". */
+export const syncLeadStatusFromActiveSequences = async (
+  leadId: string,
+  tx?: Prisma.TransactionClient
+) => {
+  const db = tx ?? prisma;
+  const activeCount = await db.sequence.count({
+    where: { leadId, status: "active" },
+  });
+  await db.lead.update({
+    where: { id: leadId },
+    data: { status: activeCount > 0 ? "Active" : "Not Active" },
+  });
+};
 import AppError from "../../shared/errors/AppError";
 import {
   BulkDeleteLeadsInput,
@@ -37,7 +52,7 @@ const createLead = async (userId: string, payload: CreateLeadInput) => {
       followUpStage: payload.followUpStage,
       company: payload.company ?? "",
       location: payload.location ?? "",
-      status: payload.status ?? "Processing",
+      status: payload.status ?? "Not Active",
     } as Prisma.LeadUncheckedCreateInput,
   });
 };
@@ -293,7 +308,7 @@ const importCSV = async (userId: string, fileBuffer: Buffer) => {
       notes: row.notes || undefined,
       company: row.company || "",
       location: row.location || "",
-      status: row.status || "Processing",
+      status: row.status || "Not Active",
       followUpStage: row.followUpStage || "New Lead",
     });
   }
@@ -311,7 +326,7 @@ const importCSV = async (userId: string, fileBuffer: Buffer) => {
         followUpStage: lead.followUpStage,
         company: lead.company ?? "",
         location: lead.location ?? "",
-        status: lead.status ?? "Processing",
+        status: lead.status ?? "Not Active",
       })) as Prisma.LeadCreateManyInput[],
       skipDuplicates: true,
     });

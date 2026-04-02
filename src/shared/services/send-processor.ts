@@ -1,5 +1,6 @@
 import cron from "node-cron";
 import prisma from "../prisma";
+import { syncLeadStatusFromActiveSequences } from "../../modules/lead/lead.service";
 import { sendEmail } from "./email.service";
 import { sendSms } from "./sms.service";
 import config from "../../config";
@@ -81,10 +82,20 @@ const checkSequenceCompletion = async (sequenceId: string) => {
   });
 
   if (remaining === 0) {
+    const seq = await prisma.sequence.findUnique({
+      where: { id: sequenceId },
+      select: { leadId: true },
+    });
+
     await prisma.sequence.update({
       where: { id: sequenceId },
       data: { status: "completed" },
     });
+
+    if (seq) {
+      await syncLeadStatusFromActiveSequences(seq.leadId);
+    }
+
     console.log(`[SendProcessor] Sequence ${sequenceId} completed`);
   }
 };

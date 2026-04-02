@@ -1,5 +1,6 @@
 import prisma from "../../shared/prisma";
 import AppError from "../../shared/errors/AppError";
+import { syncLeadStatusFromActiveSequences } from "../lead/lead.service";
 import {
   CreateSequenceInput,
   UpdateSequenceInput,
@@ -103,6 +104,22 @@ const activateSequence = async (userId: string, sequenceId: string) => {
     throw new AppError(400, `Cannot activate a "${sequence.status}" sequence`);
   }
 
+  const otherActive = await prisma.sequence.findFirst({
+    where: {
+      leadId: sequence.leadId,
+      userId,
+      status: "active",
+      id: { not: sequenceId },
+    },
+  });
+
+  if (otherActive) {
+    throw new AppError(
+      409,
+      "This lead already has another active sequence. Pause or cancel it first."
+    );
+  }
+
   const stepCount = await prisma.sequenceStep.count({
     where: { sequenceId },
   });
@@ -147,7 +164,7 @@ const activateSequence = async (userId: string, sequenceId: string) => {
       data: { status: "scheduled" },
     });
 
-    return tx.sequence.update({
+    const updated = await tx.sequence.update({
       where: { id: sequenceId },
       data: { status: "active" },
       include: {
@@ -156,6 +173,53 @@ const activateSequence = async (userId: string, sequenceId: string) => {
         steps: { orderBy: { stepOrder: "asc" } },
       },
     });
+
+    await syncLeadStatusFromActiveSequences(sequence.leadId, tx);
+
+    return updated;
+  });
+};
+
+const resumeSequence = async (userId: string, sequenceId: string) => {
+  const sequence = await getSequenceById(userId, sequenceId);
+
+  if (sequence.status !== "paused") {
+    throw new AppError(
+      400,
+      `Cannot resume a "${sequence.status}" sequence (only paused sequences can be resumed)`
+    );
+  }
+
+  const otherActive = await prisma.sequence.findFirst({
+    where: {
+      leadId: sequence.leadId,
+      userId,
+      status: "active",
+      id: { not: sequenceId },
+    },
+  });
+
+  if (otherActive) {
+    throw new AppError(
+      409,
+      "This lead already has another active sequence. Pause or cancel it first."
+    );
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.sequence.update({
+      where: { id: sequenceId },
+      data: { status: "active" },
+      include: {
+        lead: { select: { name: true, email: true, followUpStage: true } },
+        promptTemplate: { select: { id: true, name: true, followUpStage: true } },
+        steps: { orderBy: { stepOrder: "asc" } },
+      },
+    });
+
+    await syncLeadStatusFromActiveSequences(sequence.leadId, tx);
+
+    return updated;
   });
 };
 
@@ -179,7 +243,7 @@ const cancelSequence = async (userId: string, sequenceId: string) => {
       data: { status: "skipped" },
     });
 
-    return tx.sequence.update({
+    const updated = await tx.sequence.update({
       where: { id: sequenceId },
       data: { status: "cancelled" },
       include: {
@@ -188,6 +252,10 @@ const cancelSequence = async (userId: string, sequenceId: string) => {
         steps: { orderBy: { stepOrder: "asc" } },
       },
     });
+
+    await syncLeadStatusFromActiveSequences(sequence.leadId, tx);
+
+    return updated;
   });
 };
 
@@ -200,6 +268,9 @@ const updateSequence = async (
 
   if (payload.status) {
     if (payload.status === "active") {
+      if (sequence.status === "paused") {
+        return resumeSequence(userId, sequenceId);
+      }
       return activateSequence(userId, sequenceId);
     }
 
@@ -216,7 +287,7 @@ const updateSequence = async (
     }
   }
 
-  return prisma.sequence.update({
+  const updated = await prisma.sequence.update({
     where: { id: sequenceId },
     data: payload,
     include: {
@@ -224,6 +295,12 @@ const updateSequence = async (
       promptTemplate: { select: { id: true, name: true, followUpStage: true } },
     },
   });
+
+  if (payload.status !== undefined) {
+    await syncLeadStatusFromActiveSequences(sequence.leadId);
+  }
+
+  return updated;
 };
 
 const deleteSequence = async (userId: string, sequenceId: string) => {
@@ -236,9 +313,15 @@ const deleteSequence = async (userId: string, sequenceId: string) => {
     );
   }
 
-  return prisma.sequence.delete({
+  const leadId = sequence.leadId;
+
+  await prisma.sequence.delete({
     where: { id: sequenceId },
   });
+
+  await syncLeadStatusFromActiveSequences(leadId);
+
+  return null;
 };
 
 const PLAN_EXTRACTION_PROMPT = (promptText: string, totalSteps: number) => `
