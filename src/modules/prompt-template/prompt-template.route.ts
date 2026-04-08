@@ -5,6 +5,7 @@ import { PromptTemplateController } from "./prompt-template.controller";
 import {
   createPromptTemplateSchema,
   updatePromptTemplateSchema,
+  generatePromptTextSchema,
 } from "./prompt-template.validation";
 
 const router = Router();
@@ -14,6 +15,13 @@ router.post(
   auth,
   validateRequest(createPromptTemplateSchema),
   PromptTemplateController.createTemplate
+);
+
+router.post(
+  "/generate-prompt-text",
+  auth,
+  validateRequest(generatePromptTextSchema),
+  PromptTemplateController.generatePromptText
 );
 
 router.get("/", auth, PromptTemplateController.getTemplates);

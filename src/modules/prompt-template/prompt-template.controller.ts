@@ -66,6 +66,22 @@ const updateTemplate = catchAsync(
   }
 );
 
+const generatePromptText = catchAsync(
+  async (req: AuthRequest, res: Response) => {
+    const result = await PromptTemplateService.generatePromptText(
+      req.user!.id,
+      req.body
+    );
+
+    sendResponse(res, {
+      statusCode: 200,
+      success: true,
+      message: "Prompt text generated successfully",
+      data: result,
+    });
+  }
+);
+
 const deleteTemplate = catchAsync(
   async (req: AuthRequest, res: Response) => {
     await PromptTemplateService.deleteTemplate(
@@ -88,4 +104,5 @@ export const PromptTemplateController = {
   getTemplateById,
   updateTemplate,
   deleteTemplate,
+  generatePromptText,
 };

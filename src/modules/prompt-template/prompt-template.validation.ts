@@ -24,5 +24,43 @@ export const updatePromptTemplateSchema = z.object({
   }),
 });
 
+const stepTypeItem = z.enum(["SMS", "EMAIL"]);
+
+export const generatePromptTextSchema = z.object({
+  body: z.object({
+    followUpScenario: z
+      .string({ required_error: "Follow-up scenario is required" })
+      .min(10, "Follow-up scenario must be at least 10 characters"),
+    serviceDescription: z
+      .string({ required_error: "Service description is required" })
+      .min(10, "Service description must be at least 10 characters"),
+    sequenceGoal: z
+      .string({ required_error: "Sequence goal is required" })
+      .min(10, "Sequence goal must be at least 10 characters"),
+    senderName: z
+      .string({ required_error: "Sender name is required" })
+      .min(1, "Sender name cannot be empty")
+      .max(100),
+    ctaLink: z
+      .string()
+      .url("CTA link must be a valid URL")
+      .optional(),
+    companyName: z
+      .string()
+      .min(1, "Company name cannot be empty")
+      .max(100)
+      .optional(),
+    stepTypesPattern: z
+      .array(stepTypeItem)
+      .min(2, "At least 2 step types required")
+      .max(20)
+      .optional(),
+    intervalDays: z.number().int().min(1).max(90).optional(),
+    toneStyle: z.string().max(500).optional(),
+    additionalNotes: z.string().max(2000).optional(),
+  }),
+});
+
 export type CreatePromptTemplateInput = z.infer<typeof createPromptTemplateSchema>["body"];
 export type UpdatePromptTemplateInput = z.infer<typeof updatePromptTemplateSchema>["body"];
+export type GeneratePromptTextInput = z.infer<typeof generatePromptTextSchema>["body"];
