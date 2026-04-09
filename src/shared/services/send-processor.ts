@@ -1,5 +1,6 @@
 import cron from "node-cron";
 import prisma from "../prisma";
+import { SEQUENCE_STEP_STATUS } from "../sequence-step";
 import { syncLeadStatusFromActiveSequences } from "../../modules/lead/lead.service";
 import { sendEmail } from "./email.service";
 import { sendSms } from "./sms.service";
@@ -77,7 +78,7 @@ const checkSequenceCompletion = async (sequenceId: string) => {
   const remaining = await prisma.sequenceStep.count({
     where: {
       sequenceId,
-      status: "scheduled",
+      status: SEQUENCE_STEP_STATUS.SCHEDULED,
     },
   });
 
@@ -116,7 +117,7 @@ const processDueSteps = async () => {
     // and the sequence is not paused
     const dueSteps = await prisma.sequenceStep.findMany({
       where: {
-        status: "scheduled",
+        status: SEQUENCE_STEP_STATUS.SCHEDULED,
         scheduledAt: { lte: new Date() },
         sequence: { status: "active" },
       },
@@ -168,7 +169,7 @@ const processDueSteps = async () => {
         await prisma.sequenceStep.update({
           where: { id: step.id },
           data: {
-            status: "sent",
+            status: SEQUENCE_STEP_STATUS.SENT,
             sentAt: new Date(),
             sendLog: result.log,
           },
@@ -178,7 +179,7 @@ const processDueSteps = async () => {
         await prisma.sequenceStep.update({
           where: { id: step.id },
           data: {
-            status: "failed",
+            status: SEQUENCE_STEP_STATUS.FAILED,
             sendLog: result.log,
           },
         });

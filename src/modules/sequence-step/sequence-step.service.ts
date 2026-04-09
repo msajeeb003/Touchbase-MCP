@@ -4,6 +4,7 @@ import { SettingsService } from "../settings/settings.service";
 import { generateContent } from "../../shared/services/ai.service";
 import { buildPrompt, parseAIResponse } from "../../shared/services/prompt-builder";
 import { CreateStepInput, UpdateStepInput } from "./sequence-step.validation";
+import { SEQUENCE_STEP_STATUS } from "../../shared/sequence-step";
 
 const verifySequenceOwnership = async (
   userId: string,
@@ -167,8 +168,8 @@ const updateStep = async (
   }
 
   if (payload.content !== undefined || payload.subject !== undefined) {
-    if (step.status === "pending") {
-      data.status = "draft";
+    if (step.status === SEQUENCE_STEP_STATUS.PENDING) {
+      data.status = SEQUENCE_STEP_STATUS.DRAFT;
     }
   }
 
@@ -268,7 +269,10 @@ const generateStepContent = async (
       where: { sequenceId, stepOrder: step.stepOrder - 1 },
     });
 
-    if (!immediatePreview || immediatePreview.status === "pending") {
+    if (
+      !immediatePreview ||
+      immediatePreview.status === SEQUENCE_STEP_STATUS.PENDING
+    ) {
       throw new AppError(
         400,
         `Generate Step ${step.stepOrder - 1} first before generating Step ${step.stepOrder}`
@@ -301,7 +305,7 @@ const generateStepContent = async (
     where: {
       sequenceId,
       stepOrder: { lt: step.stepOrder },
-      status: { not: "pending" },
+      status: { not: SEQUENCE_STEP_STATUS.PENDING },
     },
     orderBy: { stepOrder: "asc" },
     select: {
@@ -365,7 +369,7 @@ const generateStepContent = async (
     data: {
       subject: parsed.subject,
       content: parsed.content,
-      status: "draft",
+      status: SEQUENCE_STEP_STATUS.DRAFT,
     },
   });
 };
@@ -394,7 +398,11 @@ const regenerateAllStepsContent = async (userId: string, sequenceId: string) => 
           : err instanceof Error
             ? err.message
             : "Unknown error";
-      results.push({ stepOrder: s.stepOrder, status: "failed", error: message });
+      results.push({
+        stepOrder: s.stepOrder,
+        status: SEQUENCE_STEP_STATUS.FAILED,
+        error: message,
+      });
     }
   }
 

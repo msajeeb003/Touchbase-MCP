@@ -1,4 +1,5 @@
 import prisma from "../../shared/prisma";
+import { SEQUENCE_STEP_STATUS } from "../../shared/sequence-step";
 
 interface DashboardQuery {
   days?: number;
@@ -35,7 +36,7 @@ const getDashboard = async (userId: string, query: DashboardQuery = {}) => {
       where: {
         sequence: { userId },
         stepType: "EMAIL",
-        status: "sent",
+        status: SEQUENCE_STEP_STATUS.SENT,
       },
     }),
 
@@ -43,7 +44,7 @@ const getDashboard = async (userId: string, query: DashboardQuery = {}) => {
       where: {
         sequence: { userId },
         stepType: "SMS",
-        status: "sent",
+        status: SEQUENCE_STEP_STATUS.SENT,
       },
     }),
 
@@ -71,7 +72,7 @@ const getDashboard = async (userId: string, query: DashboardQuery = {}) => {
     prisma.sequenceStep.findMany({
       where: {
         sequence: { userId },
-        status: "sent",
+        status: SEQUENCE_STEP_STATUS.SENT,
         sentAt: { gte: sinceDate },
       },
       select: { sentAt: true, stepType: true },
@@ -82,7 +83,9 @@ const getDashboard = async (userId: string, query: DashboardQuery = {}) => {
       by: ["stepType", "status"],
       where: {
         sequence: { userId },
-        status: { in: ["sent", "failed"] },
+        status: {
+          in: [SEQUENCE_STEP_STATUS.SENT, SEQUENCE_STEP_STATUS.FAILED],
+        },
       },
       _count: { id: true },
     }),
@@ -100,7 +103,7 @@ const getDashboard = async (userId: string, query: DashboardQuery = {}) => {
     prisma.sequenceStep.findMany({
       where: {
         sequence: { userId },
-        status: "scheduled",
+        status: SEQUENCE_STEP_STATUS.SCHEDULED,
         scheduledAt: { gte: new Date(), lte: untilDate },
       },
       select: {
@@ -197,8 +200,9 @@ function buildDeliveryStats(
       map.set(row.stepType, { sent: 0, failed: 0 });
     }
     const bucket = map.get(row.stepType)!;
-    if (row.status === "sent") bucket.sent = row._count.id;
-    if (row.status === "failed") bucket.failed = row._count.id;
+    if (row.status === SEQUENCE_STEP_STATUS.SENT) bucket.sent = row._count.id;
+    if (row.status === SEQUENCE_STEP_STATUS.FAILED)
+      bucket.failed = row._count.id;
   }
 
   return Array.from(map.entries()).map(([type, stats]) => ({

@@ -8,6 +8,7 @@ import {
 import { SettingsService } from "../settings/settings.service";
 import { generateContent } from "../../shared/services/ai.service";
 import { buildPrompt, parseAIResponse } from "../../shared/services/prompt-builder";
+import { SEQUENCE_STEP_STATUS } from "../../shared/sequence-step";
 
 const ALLOWED_TRANSITIONS: Record<string, string[]> = {
   draft: ["active", "cancelled"],
@@ -63,21 +64,54 @@ const createSequence = async (userId: string, payload: CreateSequenceInput) => {
   });
 };
 
+const stepTypeSentCounts = (
+  steps: { stepType: string; status: string }[]
+) => {
+  const sent = SEQUENCE_STEP_STATUS.SENT;
+  let emailSteps = 0;
+  let smsSteps = 0;
+  let emailSent = 0;
+  let smsSent = 0;
+
+  for (const s of steps) {
+    if (s.stepType === "EMAIL") {
+      emailSteps++;
+      if (s.status === sent) emailSent++;
+    } else if (s.stepType === "SMS") {
+      smsSteps++;
+      if (s.status === sent) smsSent++;
+    }
+  }
+
+  return { emailSteps, smsSteps, emailSent, smsSent };
+};
+
 const getSequences = async (userId: string, status?: string) => {
   const where: Record<string, unknown> = { userId };
   if (status) {
     where.status = status;
   }
 
-  return prisma.sequence.findMany({
+  const rows = await prisma.sequence.findMany({
     where,
     orderBy: { createdAt: "desc" },
     include: {
       lead: { select: { name: true, email: true, company: true, followUpStage: true } },
       promptTemplate: { select: { id: true, name: true, followUpStage: true } },
       _count: { select: { steps: true } },
+      steps: { select: { stepType: true, status: true } },
     },
   });
+
+  return rows.map(
+    ({ steps: stepRows, _count, ...sequence }) => ({
+      ...sequence,
+      _count: {
+        ..._count,
+        ...stepTypeSentCounts(stepRows),
+      },
+    })
+  );
 };
 
 const getSequenceById = async (userId: string, sequenceId: string) => {
@@ -132,7 +166,7 @@ const activateSequence = async (userId: string, sequenceId: string) => {
   }
 
   const pendingSteps = await prisma.sequenceStep.count({
-    where: { sequenceId, status: "pending" },
+    where: { sequenceId, status: SEQUENCE_STEP_STATUS.PENDING },
   });
 
   if (pendingSteps > 0) {
@@ -160,8 +194,8 @@ const activateSequence = async (userId: string, sequenceId: string) => {
 
   return prisma.$transaction(async (tx) => {
     await tx.sequenceStep.updateMany({
-      where: { sequenceId, status: "draft" },
-      data: { status: "scheduled" },
+      where: { sequenceId, status: SEQUENCE_STEP_STATUS.DRAFT },
+      data: { status: SEQUENCE_STEP_STATUS.SCHEDULED },
     });
 
     const updated = await tx.sequence.update({
@@ -238,9 +272,15 @@ const cancelSequence = async (userId: string, sequenceId: string) => {
     await tx.sequenceStep.updateMany({
       where: {
         sequenceId,
-        status: { in: ["pending", "draft", "scheduled"] },
+        status: {
+          in: [
+            SEQUENCE_STEP_STATUS.PENDING,
+            SEQUENCE_STEP_STATUS.DRAFT,
+            SEQUENCE_STEP_STATUS.SCHEDULED,
+          ],
+        },
       },
-      data: { status: "skipped" },
+      data: { status: SEQUENCE_STEP_STATUS.SKIPPED },
     });
 
     const updated = await tx.sequence.update({
@@ -506,8 +546,11 @@ const generateSteps = async (userId: string, sequenceId: string) => {
   const results: { stepOrder: number; status: string; error?: string }[] = [];
 
   for (const step of allSteps) {
-    if (step.status !== "pending") {
-      results.push({ stepOrder: step.stepOrder, status: "skipped" });
+    if (step.status !== SEQUENCE_STEP_STATUS.PENDING) {
+      results.push({
+        stepOrder: step.stepOrder,
+        status: SEQUENCE_STEP_STATUS.SKIPPED,
+      });
       continue;
     }
 
@@ -516,7 +559,7 @@ const generateSteps = async (userId: string, sequenceId: string) => {
         where: {
           sequenceId,
           stepOrder: { lt: step.stepOrder },
-          status: { not: "pending" },
+          status: { not: SEQUENCE_STEP_STATUS.PENDING },
         },
         orderBy: { stepOrder: "asc" },
         select: { stepOrder: true, stepType: true, subject: true, content: true },
@@ -574,14 +617,18 @@ const generateSteps = async (userId: string, sequenceId: string) => {
         data: {
           subject: parsedContent.subject,
           content: parsedContent.content,
-          status: "draft",
+          status: SEQUENCE_STEP_STATUS.DRAFT,
         },
       });
 
       results.push({ stepOrder: step.stepOrder, status: "generated" });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
-      results.push({ stepOrder: step.stepOrder, status: "failed", error: message });
+      results.push({
+        stepOrder: step.stepOrder,
+        status: SEQUENCE_STEP_STATUS.FAILED,
+        error: message,
+      });
     }
   }
 
