@@ -2,6 +2,7 @@ import prisma from "../../shared/prisma";
 import AppError from "../../shared/errors/AppError";
 import { SettingsService } from "../settings/settings.service";
 import { generateContent } from "../../shared/services/ai.service";
+import { type AIProvider } from "../../shared/constants";
 import { buildPrompt, parseAIResponse } from "../../shared/services/prompt-builder";
 import { CreateStepInput, UpdateStepInput } from "./sequence-step.validation";
 import { SEQUENCE_STEP_STATUS } from "../../shared/sequence-step";
@@ -353,7 +354,7 @@ const generateStepContent = async (
   // STEP 8: Generate content
   const aiResponse = await generateContent(
     {
-      provider: provider as "openai" | "gemini",
+      provider: provider as AIProvider,
       apiKey: aiApiKey,
       model: model || undefined,
     },

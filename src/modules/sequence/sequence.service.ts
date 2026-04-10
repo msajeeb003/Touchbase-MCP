@@ -7,6 +7,7 @@ import {
 } from "./sequence.validation";
 import { SettingsService } from "../settings/settings.service";
 import { generateContent } from "../../shared/services/ai.service";
+import { type AIProvider } from "../../shared/constants";
 import { buildPrompt, parseAIResponse } from "../../shared/services/prompt-builder";
 import { SEQUENCE_STEP_STATUS } from "../../shared/sequence-step";
 
@@ -386,7 +387,7 @@ const extractPlanFromAI = async (
 
   const aiResponse = await generateContent(
     {
-      provider: provider as "openai" | "gemini",
+      provider: provider as AIProvider,
       apiKey,
       model: model || undefined,
     },
@@ -601,7 +602,7 @@ const generateSteps = async (userId: string, sequenceId: string) => {
 
       const aiResponse = await generateContent(
         {
-          provider: aiSettings.aiProvider as "openai" | "gemini",
+          provider: aiSettings.aiProvider as AIProvider,
           apiKey: aiApiKey,
           model: aiSettings.aiModel || undefined,
         },

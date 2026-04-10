@@ -126,7 +126,7 @@ model UserSettings {
   user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // AI Configuration
-  aiProvider        String?  // "openai" | "gemini"
+  aiProvider        String?  // "openai" | "gemini" | "claude"
   aiApiKey          String?  // AES-256-GCM encrypted
   aiModel           String?
 

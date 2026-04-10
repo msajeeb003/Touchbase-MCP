@@ -1,8 +1,14 @@
 import { z } from "zod";
+import { AI_PROVIDER_LIST } from "../../shared/constants";
 
 export const updateSettingsSchema = z.object({
   body: z.object({
-    aiProvider: z.string().nullable().optional(),
+    aiProvider: z
+      .enum(AI_PROVIDER_LIST as [string, ...string[]], {
+        message: `AI provider must be one of: ${AI_PROVIDER_LIST.join(", ")}`,
+      })
+      .nullable()
+      .optional(),
     aiApiKey: z.string().nullable().optional(),
     aiModel: z.string().nullable().optional(),
 
@@ -14,7 +20,12 @@ export const updateSettingsSchema = z.object({
     smtpPassword: z.string().nullable().optional(),
     smtpFromName: z.string().nullable().optional(),
 
-    smsProvider: z.enum(["textmagic", "twilio"]).nullable().optional(),
+    smsProvider: z
+      .enum(["textmagic", "twilio"], {
+        message: "SMS provider must be one of: textmagic, twilio",
+      })
+      .nullable()
+      .optional(),
 
     textmagicUsername: z.string().nullable().optional(),
     textmagicApiKey: z.string().nullable().optional(),

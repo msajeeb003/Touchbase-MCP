@@ -7,6 +7,7 @@ import {
 } from "./prompt-template.validation";
 import { SettingsService } from "../settings/settings.service";
 import { generateContent } from "../../shared/services/ai.service";
+import { type AIProvider } from "../../shared/constants";
 
 const createTemplate = async (
   userId: string,
@@ -279,7 +280,7 @@ const generatePromptText = async (
 
   const aiResponse = await generateContent(
     {
-      provider: aiSettings.aiProvider as "openai" | "gemini",
+      provider: aiSettings.aiProvider as AIProvider,
       apiKey: aiApiKey,
       model: aiSettings.aiModel || undefined,
     },

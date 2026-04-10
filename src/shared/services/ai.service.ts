@@ -1,8 +1,11 @@
 import OpenAI from "openai";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import Anthropic from "@anthropic-ai/sdk";
 import AppError from "../errors/AppError";
+import { AI_PROVIDER, type AIProvider, DEFAULT_AI_MODELS } from "../constants";
 
-type AIProvider = "openai" | "gemini";
+const SYSTEM_PROMPT =
+  "You are an expert copywriter specializing in follow-up email and SMS sequences. Generate content exactly as instructed.";
 
 interface AIConfig {
   provider: AIProvider;
@@ -14,11 +17,6 @@ interface AIResponse {
   content: string;
 }
 
-const DEFAULT_MODELS: Record<AIProvider, string> = {
-  openai: "gpt-4o-mini",
-  gemini: "gemini-2.0-flash",
-};
-
 const generateWithOpenAI = async (
   apiKey: string,
   model: string,
@@ -29,11 +27,7 @@ const generateWithOpenAI = async (
   const response = await client.chat.completions.create({
     model,
     messages: [
-      {
-        role: "system",
-        content:
-          "You are an expert copywriter specializing in follow-up email and SMS sequences. Generate content exactly as instructed.",
-      },
+      { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: prompt },
     ],
     temperature: 0.7,
@@ -65,21 +59,49 @@ const generateWithGemini = async (
   return text;
 };
 
+const generateWithClaude = async (
+  apiKey: string,
+  model: string,
+  prompt: string
+): Promise<string> => {
+  const client = new Anthropic({ apiKey });
+
+  const response = await client.messages.create({
+    model,
+    max_tokens: 4096,
+    system: SYSTEM_PROMPT,
+    messages: [{ role: "user", content: prompt }],
+  });
+
+  const block = response.content[0];
+  if (!block || block.type !== "text" || !block.text) {
+    throw new AppError(500, "AI returned empty response");
+  }
+
+  return block.text;
+};
+
 export const generateContent = async (
   config: AIConfig,
   prompt: string
 ): Promise<AIResponse> => {
-  const model = config.model || DEFAULT_MODELS[config.provider];
+  const model = config.model || DEFAULT_AI_MODELS[config.provider];
 
   try {
     let content: string;
 
-    if (config.provider === "openai") {
-      content = await generateWithOpenAI(config.apiKey, model, prompt);
-    } else if (config.provider === "gemini") {
-      content = await generateWithGemini(config.apiKey, model, prompt);
-    } else {
-      throw new AppError(400, `Unsupported AI provider: ${config.provider}`);
+    switch (config.provider) {
+      case AI_PROVIDER.OPENAI:
+        content = await generateWithOpenAI(config.apiKey, model, prompt);
+        break;
+      case AI_PROVIDER.GEMINI:
+        content = await generateWithGemini(config.apiKey, model, prompt);
+        break;
+      case AI_PROVIDER.CLAUDE:
+        content = await generateWithClaude(config.apiKey, model, prompt);
+        break;
+      default:
+        throw new AppError(400, `Unsupported AI provider: ${config.provider}`);
     }
 
     return { content };
