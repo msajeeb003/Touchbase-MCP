@@ -7,6 +7,7 @@ const SENSITIVE_FIELDS = [
   "fathomApiKey",
   "smtpPassword",
   "textmagicApiKey",
+  "twilioAuthToken",
 ] as const;
 
 type SensitiveField = (typeof SENSITIVE_FIELDS)[number];
@@ -66,8 +67,12 @@ const SETTINGS_SELECT = {
   smtpUsername: true,
   smtpPassword: true,
   smtpFromName: true,
+  smsProvider: true,
   textmagicUsername: true,
   textmagicApiKey: true,
+  twilioAccountSid: true,
+  twilioAuthToken: true,
+  twilioPhoneNumber: true,
   createdAt: true,
   updatedAt: true,
 };

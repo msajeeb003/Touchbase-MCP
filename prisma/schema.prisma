@@ -140,9 +140,17 @@ model UserSettings {
   smtpPassword      String?  // AES-256-GCM encrypted
   smtpFromName      String?
 
+  // SMS Configuration
+  smsProvider       String?  // "textmagic" | "twilio"
+
   // TextMagic SMS
   textmagicUsername String?
   textmagicApiKey   String?  // AES-256-GCM encrypted
+
+  // Twilio SMS
+  twilioAccountSid  String?
+  twilioAuthToken   String?  // AES-256-GCM encrypted
+  twilioPhoneNumber String?
 
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt

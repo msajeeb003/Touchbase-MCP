@@ -14,8 +14,14 @@ export const updateSettingsSchema = z.object({
     smtpPassword: z.string().nullable().optional(),
     smtpFromName: z.string().nullable().optional(),
 
+    smsProvider: z.enum(["textmagic", "twilio"]).nullable().optional(),
+
     textmagicUsername: z.string().nullable().optional(),
     textmagicApiKey: z.string().nullable().optional(),
+
+    twilioAccountSid: z.string().nullable().optional(),
+    twilioAuthToken: z.string().nullable().optional(),
+    twilioPhoneNumber: z.string().nullable().optional(),
   }),
 });
 
