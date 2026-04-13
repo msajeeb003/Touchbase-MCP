@@ -1,6 +1,5 @@
 import { z } from "zod";
-
-const VALID_STATUSES = ["draft", "active", "paused", "completed", "cancelled"] as const;
+import { SEQUENCE_STATUS_LIST } from "../../shared/constants";
 
 export const createSequenceSchema = z.object({
   body: z.object({
@@ -26,7 +25,11 @@ export const createSequenceSchema = z.object({
 export const updateSequenceSchema = z.object({
   body: z.object({
     name: z.string().min(1).max(150).optional(),
-    status: z.enum(VALID_STATUSES).optional(),
+    status: z
+      .enum(SEQUENCE_STATUS_LIST as [string, ...string[]], {
+        message: `Status must be one of: ${SEQUENCE_STATUS_LIST.join(", ")}`,
+      })
+      .optional(),
   }),
 });
 

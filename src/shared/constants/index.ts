@@ -4,3 +4,9 @@ export {
   AI_PROVIDER_LIST,
   DEFAULT_AI_MODELS,
 } from "./ai-provider";
+
+export {
+  SEQUENCE_STATUS,
+  type SequenceStatus,
+  SEQUENCE_STATUS_LIST,
+} from "./sequence-status";

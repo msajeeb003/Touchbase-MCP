@@ -10,14 +10,7 @@ import { generateContent } from "../../shared/services/ai.service";
 import { type AIProvider } from "../../shared/constants";
 import { buildPrompt, parseAIResponse } from "../../shared/services/prompt-builder";
 import { SEQUENCE_STEP_STATUS } from "../../shared/sequence-step";
-
-const ALLOWED_TRANSITIONS: Record<string, string[]> = {
-  draft: ["active", "cancelled"],
-  active: ["paused", "cancelled"],
-  paused: ["active", "cancelled"],
-  completed: [],
-  cancelled: [],
-};
+import { SEQUENCE_STATUS } from "../../shared/constants";
 
 const createSequence = async (userId: string, payload: CreateSequenceInput) => {
   const lead = await prisma.lead.findFirst({
@@ -29,7 +22,7 @@ const createSequence = async (userId: string, payload: CreateSequenceInput) => {
   }
 
   const activeSequence = await prisma.sequence.findFirst({
-    where: { leadId: payload.leadId, userId, status: "active" },
+    where: { leadId: payload.leadId, userId, status: SEQUENCE_STATUS.ACTIVE },
   });
 
   if (activeSequence) {
@@ -132,18 +125,52 @@ const getSequenceById = async (userId: string, sequenceId: string) => {
   return sequence;
 };
 
-const activateSequence = async (userId: string, sequenceId: string) => {
-  const sequence = await getSequenceById(userId, sequenceId);
+const SEQUENCE_INCLUDE = {
+  lead: { select: { name: true, email: true, followUpStage: true } },
+  promptTemplate: { select: { id: true, name: true, followUpStage: true } },
+  steps: { orderBy: { stepOrder: "asc" as const } },
+};
 
-  if (sequence.status !== "draft") {
-    throw new AppError(400, `Cannot activate a "${sequence.status}" sequence`);
+const recoverSkippedSteps = async (sequenceId: string) => {
+  const skippedSteps = await prisma.sequenceStep.findMany({
+    where: { sequenceId, status: SEQUENCE_STEP_STATUS.SKIPPED },
+    select: { id: true, content: true },
+  });
+
+  if (skippedSteps.length === 0) return;
+
+  const withContent = skippedSteps
+    .filter((s) => s.content)
+    .map((s) => s.id);
+
+  const withoutContent = skippedSteps
+    .filter((s) => !s.content)
+    .map((s) => s.id);
+
+  if (withContent.length > 0) {
+    await prisma.sequenceStep.updateMany({
+      where: { id: { in: withContent } },
+      data: { status: SEQUENCE_STEP_STATUS.DRAFT },
+    });
   }
 
+  if (withoutContent.length > 0) {
+    await prisma.sequenceStep.updateMany({
+      where: { id: { in: withoutContent } },
+      data: { status: SEQUENCE_STEP_STATUS.PENDING },
+    });
+  }
+};
+
+const transitionToActive = async (
+  sequenceId: string,
+  sequence: Awaited<ReturnType<typeof getSequenceById>>
+) => {
   const otherActive = await prisma.sequence.findFirst({
     where: {
       leadId: sequence.leadId,
-      userId,
-      status: "active",
+      userId: sequence.userId,
+      status: SEQUENCE_STATUS.ACTIVE,
       id: { not: sequenceId },
     },
   });
@@ -166,6 +193,8 @@ const activateSequence = async (userId: string, sequenceId: string) => {
     );
   }
 
+  await recoverSkippedSteps(sequenceId);
+
   const pendingSteps = await prisma.sequenceStep.count({
     where: { sequenceId, status: SEQUENCE_STEP_STATUS.PENDING },
   });
@@ -177,19 +206,25 @@ const activateSequence = async (userId: string, sequenceId: string) => {
     );
   }
 
-  const pastSteps = await prisma.sequenceStep.findMany({
+  const pastUnsent = await prisma.sequenceStep.findMany({
     where: {
       sequenceId,
       scheduledAt: { lte: new Date() },
+      status: {
+        notIn: [
+          SEQUENCE_STEP_STATUS.SENT,
+          SEQUENCE_STEP_STATUS.FAILED,
+        ],
+      },
     },
     select: { stepOrder: true },
   });
 
-  if (pastSteps.length > 0) {
-    const orders = pastSteps.map((s) => s.stepOrder).join(", ");
+  if (pastUnsent.length > 0) {
+    const orders = pastUnsent.map((s) => s.stepOrder).join(", ");
     throw new AppError(
       400,
-      `Step(s) ${orders} have past scheduled dates. Update them before activation.`
+      `Unsent step(s) ${orders} have past scheduled dates. Update them before activation.`
     );
   }
 
@@ -201,12 +236,8 @@ const activateSequence = async (userId: string, sequenceId: string) => {
 
     const updated = await tx.sequence.update({
       where: { id: sequenceId },
-      data: { status: "active" },
-      include: {
-        lead: { select: { name: true, email: true, followUpStage: true } },
-        promptTemplate: { select: { id: true, name: true, followUpStage: true } },
-        steps: { orderBy: { stepOrder: "asc" } },
-      },
+      data: { status: SEQUENCE_STATUS.ACTIVE },
+      include: SEQUENCE_INCLUDE,
     });
 
     await syncLeadStatusFromActiveSequences(sequence.leadId, tx);
@@ -215,41 +246,28 @@ const activateSequence = async (userId: string, sequenceId: string) => {
   });
 };
 
-const resumeSequence = async (userId: string, sequenceId: string) => {
-  const sequence = await getSequenceById(userId, sequenceId);
-
-  if (sequence.status !== "paused") {
-    throw new AppError(
-      400,
-      `Cannot resume a "${sequence.status}" sequence (only paused sequences can be resumed)`
-    );
-  }
-
-  const otherActive = await prisma.sequence.findFirst({
-    where: {
-      leadId: sequence.leadId,
-      userId,
-      status: "active",
-      id: { not: sequenceId },
-    },
-  });
-
-  if (otherActive) {
-    throw new AppError(
-      409,
-      "This lead already has another active sequence. Pause or cancel it first."
-    );
-  }
-
+const transitionToDraft = async (
+  sequenceId: string,
+  sequence: Awaited<ReturnType<typeof getSequenceById>>
+) => {
   return prisma.$transaction(async (tx) => {
+    await tx.sequenceStep.updateMany({
+      where: {
+        sequenceId,
+        status: {
+          in: [
+            SEQUENCE_STEP_STATUS.SCHEDULED,
+            SEQUENCE_STEP_STATUS.SKIPPED,
+          ],
+        },
+      },
+      data: { status: SEQUENCE_STEP_STATUS.DRAFT },
+    });
+
     const updated = await tx.sequence.update({
       where: { id: sequenceId },
-      data: { status: "active" },
-      include: {
-        lead: { select: { name: true, email: true, followUpStage: true } },
-        promptTemplate: { select: { id: true, name: true, followUpStage: true } },
-        steps: { orderBy: { stepOrder: "asc" } },
-      },
+      data: { status: SEQUENCE_STATUS.DRAFT },
+      include: SEQUENCE_INCLUDE,
     });
 
     await syncLeadStatusFromActiveSequences(sequence.leadId, tx);
@@ -258,17 +276,10 @@ const resumeSequence = async (userId: string, sequenceId: string) => {
   });
 };
 
-const cancelSequence = async (userId: string, sequenceId: string) => {
-  const sequence = await getSequenceById(userId, sequenceId);
-
-  const allowed = ALLOWED_TRANSITIONS[sequence.status] || [];
-  if (!allowed.includes("cancelled")) {
-    throw new AppError(
-      400,
-      `Cannot cancel a "${sequence.status}" sequence`
-    );
-  }
-
+const transitionToCancelled = async (
+  sequenceId: string,
+  sequence: Awaited<ReturnType<typeof getSequenceById>>
+) => {
   return prisma.$transaction(async (tx) => {
     await tx.sequenceStep.updateMany({
       where: {
@@ -286,18 +297,56 @@ const cancelSequence = async (userId: string, sequenceId: string) => {
 
     const updated = await tx.sequence.update({
       where: { id: sequenceId },
-      data: { status: "cancelled" },
-      include: {
-        lead: { select: { name: true, email: true, followUpStage: true } },
-        promptTemplate: { select: { id: true, name: true, followUpStage: true } },
-        steps: { orderBy: { stepOrder: "asc" } },
-      },
+      data: { status: SEQUENCE_STATUS.CANCELLED },
+      include: SEQUENCE_INCLUDE,
     });
 
     await syncLeadStatusFromActiveSequences(sequence.leadId, tx);
 
     return updated;
   });
+};
+
+const transitionSimple = async (
+  sequenceId: string,
+  sequence: Awaited<ReturnType<typeof getSequenceById>>,
+  newStatus: string
+) => {
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.sequence.update({
+      where: { id: sequenceId },
+      data: { status: newStatus },
+      include: SEQUENCE_INCLUDE,
+    });
+
+    await syncLeadStatusFromActiveSequences(sequence.leadId, tx);
+
+    return updated;
+  });
+};
+
+const changeSequenceStatus = async (
+  sequenceId: string,
+  sequence: Awaited<ReturnType<typeof getSequenceById>>,
+  newStatus: string
+) => {
+  if (sequence.status === newStatus) {
+    throw new AppError(400, `Sequence is already "${newStatus}"`);
+  }
+
+  switch (newStatus) {
+    case SEQUENCE_STATUS.ACTIVE:
+      return transitionToActive(sequenceId, sequence);
+    case SEQUENCE_STATUS.DRAFT:
+      return transitionToDraft(sequenceId, sequence);
+    case SEQUENCE_STATUS.CANCELLED:
+      return transitionToCancelled(sequenceId, sequence);
+    case SEQUENCE_STATUS.PAUSED:
+    case SEQUENCE_STATUS.COMPLETED:
+      return transitionSimple(sequenceId, sequence, newStatus);
+    default:
+      throw new AppError(400, `Invalid status: "${newStatus}"`);
+  }
 };
 
 const updateSequence = async (
@@ -308,27 +357,10 @@ const updateSequence = async (
   const sequence = await getSequenceById(userId, sequenceId);
 
   if (payload.status) {
-    if (payload.status === "active") {
-      if (sequence.status === "paused") {
-        return resumeSequence(userId, sequenceId);
-      }
-      return activateSequence(userId, sequenceId);
-    }
-
-    if (payload.status === "cancelled") {
-      return cancelSequence(userId, sequenceId);
-    }
-
-    const allowed = ALLOWED_TRANSITIONS[sequence.status] || [];
-    if (!allowed.includes(payload.status)) {
-      throw new AppError(
-        400,
-        `Cannot change status from "${sequence.status}" to "${payload.status}"`
-      );
-    }
+    return changeSequenceStatus(sequenceId, sequence, payload.status);
   }
-
-  const updated = await prisma.sequence.update({
+  // console.log({payload});
+  return prisma.sequence.update({
     where: { id: sequenceId },
     data: payload,
     include: {
@@ -336,18 +368,12 @@ const updateSequence = async (
       promptTemplate: { select: { id: true, name: true, followUpStage: true } },
     },
   });
-
-  if (payload.status !== undefined) {
-    await syncLeadStatusFromActiveSequences(sequence.leadId);
-  }
-
-  return updated;
 };
 
 const deleteSequence = async (userId: string, sequenceId: string) => {
   const sequence = await getSequenceById(userId, sequenceId);
 
-  if (sequence.status === "active") {
+  if (sequence.status === SEQUENCE_STATUS.ACTIVE) {
     throw new AppError(
       400,
       "Cannot delete an active sequence. Pause or cancel it first."
@@ -462,7 +488,7 @@ const generateSteps = async (userId: string, sequenceId: string) => {
 
 
   if (!sequence) throw new AppError(404, "Sequence not found");
-  if (sequence.status !== "draft") {
+  if (sequence.status !== SEQUENCE_STATUS.DRAFT) {
     throw new AppError(400, "Steps can only be generated for draft sequences");
   }
   if (!sequence.promptTemplate) {
