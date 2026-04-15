@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { STEP_TYPE_LIST } from "../../shared/constants";
 
 export const createPromptTemplateSchema = z.object({
   body: z.object({
@@ -24,7 +25,7 @@ export const updatePromptTemplateSchema = z.object({
   }),
 });
 
-const stepTypeItem = z.enum(["SMS", "EMAIL"]);
+const stepTypeItem = z.enum(STEP_TYPE_LIST as [string, ...string[]]);
 
 export const generatePromptTextSchema = z.object({
   body: z.object({

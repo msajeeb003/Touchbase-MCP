@@ -1,6 +1,13 @@
 import { z } from "zod";
+import { STEP_TYPE_LIST } from "../../shared/constants";
 
-const VALID_STEP_TYPES = ["EMAIL", "SMS"] as const;
+const stepTypeEnum = z.enum(
+  STEP_TYPE_LIST as [string, ...string[]],
+  {
+    required_error: "Step type is required",
+    message: `Step type must be one of: ${STEP_TYPE_LIST.join(", ")}`,
+  }
+);
 
 export const createStepSchema = z.object({
   body: z.object({
@@ -8,10 +15,7 @@ export const createStepSchema = z.object({
       .number({ required_error: "Step order is required" })
       .int("Step order must be a whole number")
       .min(1, "Step order must be at least 1"),
-    stepType: z.enum(VALID_STEP_TYPES, {
-      required_error: "Step type is required",
-      invalid_type_error: "Step type must be EMAIL or SMS",
-    }),
+    stepType: stepTypeEnum,
     scheduledAt: z
       .string({ required_error: "Scheduled date is required" })
       .datetime("Invalid date format"),
@@ -20,7 +24,7 @@ export const createStepSchema = z.object({
 
 export const updateStepSchema = z.object({
   body: z.object({
-    stepType: z.enum(VALID_STEP_TYPES).optional(),
+    stepType: stepTypeEnum.optional(),
     subject: z.string().min(1).optional(),
     content: z.string().min(1).optional(),
     scheduledAt: z.string().datetime("Invalid date format").optional(),

@@ -4,6 +4,7 @@ import { SEQUENCE_STEP_STATUS } from "../sequence-step";
 import { syncLeadStatusFromActiveSequences } from "../../modules/lead/lead.service";
 import { sendEmail } from "./email.service";
 import { sendSms } from "./sms.service";
+import { sendWhatsApp } from "./whatsapp.service";
 import config from "../../config";
 
 const BATCH_SIZE = config.batch_size;
@@ -63,6 +64,21 @@ const processStep = async (step: {
       return {
         success: true,
         log: `SMS sent to ${step.sequence.lead.phone}`,
+      };
+    } else if (step.stepType === "WHATSAPP") {
+      if (!step.sequence.lead.phone) {
+        return { success: false, log: "Failed: Lead has no phone number" };
+      }
+
+      await sendWhatsApp(
+        step.sequence.userId,
+        step.sequence.lead.phone,
+        step.content
+      );
+
+      return {
+        success: true,
+        log: `WhatsApp sent to ${step.sequence.lead.phone}`,
       };
     }
 

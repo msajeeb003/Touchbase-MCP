@@ -5,7 +5,7 @@ import AppError from "../errors/AppError";
 import { AI_PROVIDER, type AIProvider, DEFAULT_AI_MODELS } from "../constants";
 
 const SYSTEM_PROMPT =
-  "You are an expert copywriter specializing in follow-up email and SMS sequences. Generate content exactly as instructed.";
+  "You are an expert copywriter specializing in follow-up email, SMS, and WhatsApp sequences. Generate content exactly as instructed.";
 
 interface AIConfig {
   provider: AIProvider;

@@ -10,3 +10,9 @@ export {
   type SequenceStatus,
   SEQUENCE_STATUS_LIST,
 } from "./sequence-status";
+
+export {
+  STEP_TYPE,
+  type StepType,
+  STEP_TYPE_LIST,
+} from "./step-type";

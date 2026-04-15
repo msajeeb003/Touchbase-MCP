@@ -172,7 +172,8 @@ SMS (tone only):
 Hey {{lead.name}} — Artur from Artech Digital. We missed you on our call; no worries. Want to lock a quick PRD session? You'll get a full roadmap doc either way. Book here: https://calendly.com/artech-digital/30min-call`;
 
 const buildGenerationPrompt = (input: GeneratePromptTextInput): string => {
-  const stepPattern = (input.stepTypesPattern || ["SMS", "EMAIL", "SMS", "EMAIL", "SMS", "EMAIL"]).join(", ");
+  const defaultPattern = ["SMS", "EMAIL", "WHATSAPP", "SMS", "EMAIL", "WHATSAPP"];
+  const stepPattern = (input.stepTypesPattern || defaultPattern).join(", ");
   const interval = input.intervalDays || 3;
   const tone = input.toneStyle || "Professional but warm and conversational";
 
@@ -254,7 +255,8 @@ NOW generate a complete prompt template based on the user's inputs above. Follow
      ${outputFormatCtaNote}
    - SMS: No subject line
      ${outputFormatSmsCtaNote}
-6. STYLE REFERENCES (example email and SMS adapted to the user's scenario${!hasCtaLink ? " — no URLs in examples" : ""})
+   - WHATSAPP: No subject line, 3-6 sentences, conversational tone, light formatting (*bold*, _italic_) allowed
+6. STYLE REFERENCES (example email, SMS, and WhatsApp adapted to the user's scenario${!hasCtaLink ? " — no URLs in examples" : ""})
 
 Output ONLY the template text. No explanations, no markdown code fences.`;
 };

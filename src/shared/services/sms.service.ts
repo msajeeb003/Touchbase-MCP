@@ -58,13 +58,13 @@ const sendTextMagicSms = async (
 
 // ── Twilio ───────────────────────────────────────────────────────────
 
-interface TwilioConfig {
+export interface TwilioConfig {
   accountSid: string;
   authToken: string;
   phoneNumber: string;
 }
 
-const getTwilioConfig = async (userId: string): Promise<TwilioConfig> => {
+export const getTwilioConfig = async (userId: string): Promise<TwilioConfig> => {
   const settings = await prisma.userSettings.findUnique({
     where: { userId },
     select: { twilioAccountSid: true, twilioPhoneNumber: true },

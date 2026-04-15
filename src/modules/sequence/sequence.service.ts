@@ -7,7 +7,7 @@ import {
 } from "./sequence.validation";
 import { SettingsService } from "../settings/settings.service";
 import { generateContent } from "../../shared/services/ai.service";
-import { type AIProvider } from "../../shared/constants";
+import { type AIProvider, STEP_TYPE_LIST } from "../../shared/constants";
 import { buildPrompt, parseAIResponse } from "../../shared/services/prompt-builder";
 import { SEQUENCE_STEP_STATUS } from "../../shared/sequence-step";
 import { SEQUENCE_STATUS } from "../../shared/constants";
@@ -393,7 +393,7 @@ const deleteSequence = async (userId: string, sequenceId: string) => {
 
 const PLAN_EXTRACTION_PROMPT = (promptText: string, totalSteps: number) => `
 Analyze the following follow-up template and return a JSON object with exactly 2 keys:
-- "stepTypes": an array of exactly ${totalSteps} values, each must be "EMAIL" or "SMS". Infer the communication pattern from the template (e.g. email first, then sms, alternating, etc.).
+- "stepTypes": an array of exactly ${totalSteps} values, each must be one of: ${STEP_TYPE_LIST.join(", ")}. Infer the communication pattern from the template (e.g. email first, then sms, then whatsapp, alternating, etc.).
 - "intervalDays": a positive integer representing the number of days between each step.
 
 Template:
@@ -449,12 +449,13 @@ const extractPlanFromAI = async (
 
   const plan = parsed as { stepTypes: unknown[]; intervalDays: number };
 
+  const validTypes = new Set<string>(STEP_TYPE_LIST);
   const stepTypes = plan.stepTypes.map((t) => {
     const normalized = String(t).toUpperCase().trim();
-    if (normalized !== "EMAIL" && normalized !== "SMS") {
+    if (!validTypes.has(normalized)) {
       throw new AppError(
         502,
-        `AI returned invalid step type "${t}". Only EMAIL and SMS are allowed.`
+        `AI returned invalid step type "${t}". Allowed: ${STEP_TYPE_LIST.join(", ")}`
       );
     }
     return normalized;
