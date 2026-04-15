@@ -64,8 +64,10 @@ const stepTypeSentCounts = (
   const sent = SEQUENCE_STEP_STATUS.SENT;
   let emailSteps = 0;
   let smsSteps = 0;
+  let whatsappSteps = 0;
   let emailSent = 0;
   let smsSent = 0;
+  let whatsappSent = 0;
 
   for (const s of steps) {
     if (s.stepType === "EMAIL") {
@@ -74,10 +76,13 @@ const stepTypeSentCounts = (
     } else if (s.stepType === "SMS") {
       smsSteps++;
       if (s.status === sent) smsSent++;
+    } else if (s.stepType === "WHATSAPP") {
+      whatsappSteps++;
+      if (s.status === sent) whatsappSent++;
     }
   }
 
-  return { emailSteps, smsSteps, emailSent, smsSent };
+  return { emailSteps, smsSteps, whatsappSteps, emailSent, smsSent, whatsappSent };
 };
 
 const getSequences = async (userId: string, status?: string) => {
@@ -521,6 +526,7 @@ const generateSteps = async (userId: string, sequenceId: string) => {
     sequence.promptTemplate.promptText,
     sequence.totalSteps
   );
+  console.log({stepTypes, intervalDays});
 
   // 4. Determine which steps are missing
   const existingOrders = new Set(sequence.steps.map((s) => s.stepOrder));
@@ -528,6 +534,7 @@ const generateSteps = async (userId: string, sequenceId: string) => {
     { length: sequence.totalSteps },
     (_, i) => i + 1
   ).filter((order) => !existingOrders.has(order));
+  console.log({missingOrders});
 
 
   // 5. Calculate startDate for new steps
@@ -540,6 +547,7 @@ const generateSteps = async (userId: string, sequenceId: string) => {
     baseDate = new Date();
     baseDate.setHours(baseDate.getHours() + 6);
   }
+  console.log({baseDate});
 
 
   // 6. Create missing steps
@@ -559,7 +567,7 @@ const generateSteps = async (userId: string, sequenceId: string) => {
         scheduledAt,
       };
     });
-
+    console.log({newSteps});
     await prisma.sequenceStep.createMany({ data: newSteps });
   }
 
@@ -568,7 +576,7 @@ const generateSteps = async (userId: string, sequenceId: string) => {
     where: { sequenceId },
     orderBy: { stepOrder: "asc" },
   });
-
+  console.log({allSteps});
 
   // 8. Generate content for all pending steps sequentially
   const results: { stepOrder: number; status: string; error?: string }[] = [];
