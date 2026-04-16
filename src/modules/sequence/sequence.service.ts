@@ -62,6 +62,7 @@ const stepTypeSentCounts = (
   steps: { stepType: string; status: string }[]
 ) => {
   const sent = SEQUENCE_STEP_STATUS.SENT;
+  const failed = SEQUENCE_STEP_STATUS.FAILED;
   let emailSteps = 0;
   let smsSteps = 0;
   let whatsappSteps = 0;
@@ -72,13 +73,13 @@ const stepTypeSentCounts = (
   for (const s of steps) {
     if (s.stepType === "EMAIL") {
       emailSteps++;
-      if (s.status === sent) emailSent++;
+      if (s.status === sent || s.status == failed) emailSent++;
     } else if (s.stepType === "SMS") {
       smsSteps++;
-      if (s.status === sent) smsSent++;
+      if (s.status === sent || s.status == failed) smsSent++;
     } else if (s.stepType === "WHATSAPP") {
       whatsappSteps++;
-      if (s.status === sent) whatsappSent++;
+      if (s.status === sent || s.status == failed) whatsappSent++;
     }
   }
 
