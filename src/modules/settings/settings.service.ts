@@ -73,6 +73,7 @@ const SETTINGS_SELECT = {
   twilioAccountSid: true,
   twilioAuthToken: true,
   twilioPhoneNumber: true,
+  twilioWhatsappNumber: true,
   createdAt: true,
   updatedAt: true,
 };

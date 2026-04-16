@@ -33,6 +33,7 @@ export const updateSettingsSchema = z.object({
     twilioAccountSid: z.string().nullable().optional(),
     twilioAuthToken: z.string().nullable().optional(),
     twilioPhoneNumber: z.string().nullable().optional(),
+    twilioWhatsappNumber: z.string().nullable().optional(),
   }),
 });
 

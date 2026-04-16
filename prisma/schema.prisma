@@ -147,10 +147,11 @@ model UserSettings {
   textmagicUsername String?
   textmagicApiKey   String?  // AES-256-GCM encrypted
 
-  // Twilio SMS
-  twilioAccountSid  String?
-  twilioAuthToken   String?  // AES-256-GCM encrypted
-  twilioPhoneNumber String?
+  // Twilio (shared credentials)
+  twilioAccountSid      String?
+  twilioAuthToken       String?  // AES-256-GCM encrypted
+  twilioPhoneNumber     String?  // SMS only
+  twilioWhatsappNumber  String?  // WhatsApp only (sandbox or production)
 
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
