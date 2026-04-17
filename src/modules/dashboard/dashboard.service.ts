@@ -20,6 +20,7 @@ const getDashboard = async (userId: string, query: DashboardQuery = {}) => {
     totalLeads,
     totalEmailsSent,
     totalSmsSent,
+    totalWhatsAppSent,
     activeSequences,
     totalTranscripts,
     leadsByStage,
@@ -44,6 +45,14 @@ const getDashboard = async (userId: string, query: DashboardQuery = {}) => {
       where: {
         sequence: { userId },
         stepType: "SMS",
+        status: SEQUENCE_STEP_STATUS.SENT,
+      },
+    }),
+
+    prisma.sequenceStep.count({
+      where: {
+        sequence: { userId },
+        stepType: "WHATSAPP",
         status: SEQUENCE_STEP_STATUS.SENT,
       },
     }),
@@ -124,11 +133,14 @@ const getDashboard = async (userId: string, query: DashboardQuery = {}) => {
     }),
   ]);
 
+  console.log({totalWhatsAppSent});
+
   return {
     summary: {
       totalLeads,
       totalEmailsSent,
       totalSmsSent,
+      totalWhatsAppSent,
       activeSequences,
       totalTranscripts,
     },
@@ -166,13 +178,13 @@ function buildDailyTrend(
   steps: { sentAt: Date | null; stepType: string }[],
   days: number
 ) {
-  const map = new Map<string, { emails: number; sms: number }>();
+  const map = new Map<string, { emails: number; sms: number; whatsapp: number }>();
 
   for (let i = 0; i < days; i++) {
     const d = new Date();
     d.setDate(d.getDate() - i);
     const key = d.toISOString().slice(0, 10);
-    map.set(key, { emails: 0, sms: 0 });
+    map.set(key, { emails: 0, sms: 0, whatsapp: 0 });
   }
 
   for (const step of steps) {
@@ -183,6 +195,7 @@ function buildDailyTrend(
 
     if (step.stepType === "EMAIL") bucket.emails++;
     else if (step.stepType === "SMS") bucket.sms++;
+    else if (step.stepType === "WHATSAPP") bucket.whatsapp++;
   }
 
   return Array.from(map.entries())
