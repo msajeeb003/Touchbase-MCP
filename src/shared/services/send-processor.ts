@@ -5,6 +5,7 @@ import { syncLeadStatusFromActiveSequences } from "../../modules/lead/lead.servi
 import { sendEmail } from "./email.service";
 import { sendSms } from "./sms.service";
 import { sendWhatsApp } from "./whatsapp.service";
+import { triggerCall } from "./calling.service";
 import config from "../../config";
 
 const BATCH_SIZE = config.batch_size;
@@ -23,9 +24,10 @@ const processStep = async (step: {
       name: string;
       email: string | null;
       phone: string | null;
+      company: string;
     };
   };
-}): Promise<{ success: boolean; log: string }> => {
+}): Promise<{ success: boolean; log: string; async?: boolean }> => {
   if (step.sequence.status !== "active") {
     return { success: false, log: "Failed: Sequence no longer active" };
   }
@@ -80,6 +82,26 @@ const processStep = async (step: {
         success: true,
         log: `WhatsApp sent to ${step.sequence.lead.phone}`,
       };
+    } else if (step.stepType === "CALL") {
+      if (!step.sequence.lead.phone) {
+        return { success: false, log: "Failed: Lead has no phone number" };
+      }
+
+      const result = await triggerCall({
+        userId: step.sequence.userId,
+        stepId: step.id,
+        sequenceId: step.sequence.id,
+        phone: step.sequence.lead.phone,
+        agentPrompt: step.content,
+        leadName: step.sequence.lead.name,
+        leadCompany: step.sequence.lead.company,
+      });
+
+      return {
+        success: true,
+        async: true,
+        log: `Call initiated (retellCallId: ${result.callId})`,
+      };
     }
 
     return { success: false, log: "Failed: Unknown step type" };
@@ -94,7 +116,9 @@ const checkSequenceCompletion = async (sequenceId: string) => {
   const remaining = await prisma.sequenceStep.count({
     where: {
       sequenceId,
-      status: SEQUENCE_STEP_STATUS.SCHEDULED,
+      status: {
+        in: [SEQUENCE_STEP_STATUS.SCHEDULED, SEQUENCE_STEP_STATUS.CALLING],
+      },
     },
   });
 
@@ -143,7 +167,7 @@ const processDueSteps = async () => {
         sequence: {
           include: {
             lead: {
-              select: { name: true, email: true, phone: true },
+              select: { name: true, email: true, phone: true, company: true },
             },
           },
         },
@@ -178,10 +202,18 @@ const processDueSteps = async () => {
         continue;
       }
 
-      // process the step
       const result = await processStep(step);
 
-      if (result.success) {
+      if (result.success && result.async) {
+        await prisma.sequenceStep.update({
+          where: { id: step.id },
+          data: {
+            status: SEQUENCE_STEP_STATUS.CALLING,
+            sendLog: result.log,
+          },
+        });
+        console.log(`[SendProcessor] ${result.log}`);
+      } else if (result.success) {
         await prisma.sequenceStep.update({
           where: { id: step.id },
           data: {

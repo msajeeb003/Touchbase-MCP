@@ -34,6 +34,9 @@ export const updateSettingsSchema = z.object({
     twilioAuthToken: z.string().nullable().optional(),
     twilioPhoneNumber: z.string().nullable().optional(),
     twilioWhatsappNumber: z.string().nullable().optional(),
+
+    retellApiKey: z.string().nullable().optional(),
+    retellAgentId: z.string().nullable().optional(),
   }),
 });
 

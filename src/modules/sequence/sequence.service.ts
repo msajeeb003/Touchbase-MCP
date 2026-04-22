@@ -66,9 +66,11 @@ const stepTypeSentCounts = (
   let emailSteps = 0;
   let smsSteps = 0;
   let whatsappSteps = 0;
+  let callSteps = 0;
   let emailSent = 0;
   let smsSent = 0;
   let whatsappSent = 0;
+  let callSent = 0;
 
   for (const s of steps) {
     if (s.stepType === "EMAIL") {
@@ -80,10 +82,13 @@ const stepTypeSentCounts = (
     } else if (s.stepType === "WHATSAPP") {
       whatsappSteps++;
       if (s.status === sent || s.status == failed) whatsappSent++;
+    } else if (s.stepType === "CALL") {
+      callSteps++;
+      if (s.status === sent || s.status == failed) callSent++;
     }
   }
 
-  return { emailSteps, smsSteps, whatsappSteps, emailSent, smsSent, whatsappSent };
+  return { emailSteps, smsSteps, whatsappSteps, callSteps, emailSent, smsSent, whatsappSent, callSent };
 };
 
 const getSequences = async (userId: string, status?: string) => {
@@ -264,6 +269,7 @@ const transitionToDraft = async (
           in: [
             SEQUENCE_STEP_STATUS.SCHEDULED,
             SEQUENCE_STEP_STATUS.SKIPPED,
+            SEQUENCE_STEP_STATUS.CALLING,
           ],
         },
       },
@@ -295,6 +301,7 @@ const transitionToCancelled = async (
             SEQUENCE_STEP_STATUS.PENDING,
             SEQUENCE_STEP_STATUS.DRAFT,
             SEQUENCE_STEP_STATUS.SCHEDULED,
+            SEQUENCE_STEP_STATUS.CALLING,
           ],
         },
       },

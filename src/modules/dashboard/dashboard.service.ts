@@ -21,6 +21,7 @@ const getDashboard = async (userId: string, query: DashboardQuery = {}) => {
     totalEmailsSent,
     totalSmsSent,
     totalWhatsAppSent,
+    totalCallsMade,
     activeSequences,
     totalTranscripts,
     leadsByStage,
@@ -53,6 +54,14 @@ const getDashboard = async (userId: string, query: DashboardQuery = {}) => {
       where: {
         sequence: { userId },
         stepType: "WHATSAPP",
+        status: SEQUENCE_STEP_STATUS.SENT,
+      },
+    }),
+
+    prisma.sequenceStep.count({
+      where: {
+        sequence: { userId },
+        stepType: "CALL",
         status: SEQUENCE_STEP_STATUS.SENT,
       },
     }),
@@ -133,7 +142,22 @@ const getDashboard = async (userId: string, query: DashboardQuery = {}) => {
     }),
   ]);
 
-  console.log({totalWhatsAppSent});
+  console.log({
+    totalLeads,
+    totalEmailsSent,
+    totalSmsSent,
+    totalWhatsAppSent,
+    totalCallsMade,
+    activeSequences,
+    totalTranscripts,
+    leadsByStage,
+    sequencesByStatus,
+    sentSteps,
+    deliveryRaw,
+    leadsCreated,
+    upcomingSteps,
+
+  });
 
   return {
     summary: {
@@ -141,6 +165,7 @@ const getDashboard = async (userId: string, query: DashboardQuery = {}) => {
       totalEmailsSent,
       totalSmsSent,
       totalWhatsAppSent,
+      totalCallsMade,
       activeSequences,
       totalTranscripts,
     },
@@ -178,13 +203,13 @@ function buildDailyTrend(
   steps: { sentAt: Date | null; stepType: string }[],
   days: number
 ) {
-  const map = new Map<string, { emails: number; sms: number; whatsapp: number }>();
+  const map = new Map<string, { emails: number; sms: number; whatsapp: number; calls: number }>();
 
   for (let i = 0; i < days; i++) {
     const d = new Date();
     d.setDate(d.getDate() - i);
     const key = d.toISOString().slice(0, 10);
-    map.set(key, { emails: 0, sms: 0, whatsapp: 0 });
+    map.set(key, { emails: 0, sms: 0, whatsapp: 0, calls: 0 });
   }
 
   for (const step of steps) {
@@ -196,6 +221,7 @@ function buildDailyTrend(
     if (step.stepType === "EMAIL") bucket.emails++;
     else if (step.stepType === "SMS") bucket.sms++;
     else if (step.stepType === "WHATSAPP") bucket.whatsapp++;
+    else if (step.stepType === "CALL") bucket.calls++;
   }
 
   return Array.from(map.entries())

@@ -8,6 +8,7 @@ const SENSITIVE_FIELDS = [
   "smtpPassword",
   "textmagicApiKey",
   "twilioAuthToken",
+  "retellApiKey",
 ] as const;
 
 type SensitiveField = (typeof SENSITIVE_FIELDS)[number];
@@ -74,6 +75,8 @@ const SETTINGS_SELECT = {
   twilioAuthToken: true,
   twilioPhoneNumber: true,
   twilioWhatsappNumber: true,
+  retellApiKey: true,
+  retellAgentId: true,
   createdAt: true,
   updatedAt: true,
 };

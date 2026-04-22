@@ -114,10 +114,33 @@ model SequenceStep {
   sendLog     String?   @db.Text
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+  callLogs    CallLog[]
 
   @@unique([sequenceId, stepOrder])
   @@index([sequenceId])
   @@map("sequence_steps")
+}
+
+model CallLog {
+  id                   String   @id @default(uuid())
+  stepId               String
+  step                 SequenceStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  userId               String
+  retellCallId         String   @unique
+  callStatus           String
+  duration             Int?
+  recordingUrl         String?
+  transcript           String?  @db.Text
+  disconnectionReason  String?
+  fromNumber           String?
+  toNumber             String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([stepId])
+  @@index([userId])
+  @@index([retellCallId])
+  @@map("call_logs")
 }
 
 model UserSettings {
@@ -152,6 +175,10 @@ model UserSettings {
   twilioAuthToken       String?  // AES-256-GCM encrypted
   twilioPhoneNumber     String?  // SMS only
   twilioWhatsappNumber  String?  // WhatsApp only (sandbox or production)
+
+  // Retell AI (calling)
+  retellApiKey          String?  // AES-256-GCM encrypted
+  retellAgentId         String?
 
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt

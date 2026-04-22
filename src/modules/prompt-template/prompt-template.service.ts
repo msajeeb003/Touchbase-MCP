@@ -150,6 +150,12 @@ The follow-up sequence alternates channels and uses a fixed gap between steps. W
 - **2–4 short sentences max.** One clear CTA with the same Calendly link.
 - Same strategic goals as email, but much tighter.
 
+### If current step is CALL
+
+- **No subject line.**
+- **5–8 concise bullet points** as talking points for a live follow-up phone call.
+- Include key discussion points, questions to ask the lead, and value propositions.
+
 ---
 
 ## STYLE REFERENCES (do not copy verbatim — adapt to transcript and step position)
@@ -172,7 +178,7 @@ SMS (tone only):
 Hey {{lead.name}} — Artur from Artech Digital. We missed you on our call; no worries. Want to lock a quick PRD session? You'll get a full roadmap doc either way. Book here: https://calendly.com/artech-digital/30min-call`;
 
 const buildGenerationPrompt = (input: GeneratePromptTextInput): string => {
-  const defaultPattern = ["SMS", "EMAIL", "WHATSAPP", "SMS", "EMAIL", "WHATSAPP"];
+  const defaultPattern = ["SMS", "EMAIL", "WHATSAPP", "CALL", "SMS", "EMAIL"];
   const stepPattern = (input.stepTypesPattern || defaultPattern).join(", ");
   const interval = input.intervalDays || 3;
   const tone = input.toneStyle || "Professional but warm and conversational";
@@ -256,7 +262,8 @@ NOW generate a complete prompt template based on the user's inputs above. Follow
    - SMS: No subject line
      ${outputFormatSmsCtaNote}
    - WHATSAPP: No subject line, 3-6 sentences, conversational tone, light formatting (*bold*, _italic_) allowed
-6. STYLE REFERENCES (example email, SMS, and WhatsApp adapted to the user's scenario${!hasCtaLink ? " — no URLs in examples" : ""})
+   - CALL: No subject line, generate concise call talking points (5-8 bullet points) for a sales follow-up phone call
+6. STYLE REFERENCES (example email, SMS, WhatsApp, and call script adapted to the user's scenario${!hasCtaLink ? " — no URLs in examples" : ""})
 
 Output ONLY the template text. No explanations, no markdown code fences.`;
 };

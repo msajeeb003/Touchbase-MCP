@@ -86,6 +86,8 @@ export const buildPrompt = (params: BuildPromptParams): string => {
     prompt += `\n\nIMPORTANT: Start your response with "SUBJECT: " on the first line, followed by the email body.`;
   } else if (stepContext.stepType === "WHATSAPP") {
     prompt += `\n\nIMPORTANT: Generate only the WhatsApp message text. Keep it conversational and friendly (3-6 sentences). No subject line. You may use light formatting like *bold* or _italic_ for emphasis.`;
+  } else if (stepContext.stepType === "CALL") {
+    prompt += `\n\nIMPORTANT: Generate a concise call script/talking points for a sales follow-up phone call (5-8 bullet points). No subject line. Focus on key discussion points, questions to ask, and value propositions to mention.`;
   } else {
     prompt += `\n\nIMPORTANT: Generate only the SMS text. Keep it concise (2-4 sentences max). No subject line.`;
   }
@@ -113,7 +115,7 @@ export const parseAIResponse = (
   response: string,
   stepType: string
 ): { subject: string | null; content: string } => {
-  if (stepType === "SMS" || stepType === "WHATSAPP") {
+  if (stepType === "SMS" || stepType === "WHATSAPP" || stepType === "CALL") {
     return { subject: null, content: response.trim() };
   }
 
