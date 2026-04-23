@@ -87,7 +87,15 @@ export const buildPrompt = (params: BuildPromptParams): string => {
   } else if (stepContext.stepType === "WHATSAPP") {
     prompt += `\n\nIMPORTANT: Generate only the WhatsApp message text. Keep it conversational and friendly (3-6 sentences). No subject line. You may use light formatting like *bold* or _italic_ for emphasis.`;
   } else if (stepContext.stepType === "CALL") {
-    prompt += `\n\nIMPORTANT: Generate a concise call script/talking points for a sales follow-up phone call (5-8 bullet points). No subject line. Focus on key discussion points, questions to ask, and value propositions to mention.`;
+    prompt += `\n\nIMPORTANT: Generate structured call context for an AI voice agent. The template above describes who you represent (sender name and company)—use that for GREETING and SENDER. No subject line. For voice: do not read long URLs aloud; if a meeting link exists, say you will text or email it after the call. Use this exact section headers:
+
+GREETING: The first thing the agent says when the call connects—1–2 short spoken sentences, use the lead's name, match this step's situation (e.g. missed call vs first touch vs final follow-up). Must sound natural on a phone.
+SENDER: One line—caller name and company exactly as implied by the template above (e.g. "Artur Abdullin, Artech Digital").
+OBJECTIVE: One sentence—goal of this call
+BACKGROUND: 2–4 sentences—lead context, prior messages, meeting notes from transcript if any
+KEY POINTS: 3–5 bullet lines—what to convey during the conversation
+QUESTIONS: 2–3 bullet lines—what to ask the lead
+CLOSING: One sentence—how to end or what next step to propose`;
   } else {
     prompt += `\n\nIMPORTANT: Generate only the SMS text. Keep it concise (2-4 sentences max). No subject line.`;
   }

@@ -31,8 +31,6 @@ interface TriggerCallParams {
   sequenceId: string;
   phone: string;
   agentPrompt: string;
-  leadName: string;
-  leadCompany: string;
 }
 
 interface TriggerCallResult {
@@ -43,8 +41,23 @@ export const triggerCall = async (
   params: TriggerCallParams
 ): Promise<TriggerCallResult> => {
   const config = await getRetellConfig(params.userId);
-
+  console.log({config});
   const fromNumber = await getCallerNumber(params.userId);
+  console.log({fromNumber});
+
+  console.log({
+    from_number: fromNumber,
+    to_number: params.phone,
+    agent_id: config.agentId,
+    retell_llm_dynamic_variables: {
+      context: params.agentPrompt,
+    },
+    metadata: {
+      stepId: params.stepId,
+      sequenceId: params.sequenceId,
+      userId: params.userId,
+    },
+  });
 
   const response = await fetch(
     "https://api.retellai.com/v2/create-phone-call",
@@ -59,8 +72,6 @@ export const triggerCall = async (
         to_number: params.phone,
         agent_id: config.agentId,
         retell_llm_dynamic_variables: {
-          lead_name: params.leadName,
-          company: params.leadCompany,
           context: params.agentPrompt,
         },
         metadata: {
@@ -78,6 +89,7 @@ export const triggerCall = async (
   }
 
   const data = (await response.json()) as { call_id: string };
+  console.log({data});
   return { callId: data.call_id };
 };
 

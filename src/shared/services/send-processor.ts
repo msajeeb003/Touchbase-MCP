@@ -93,8 +93,6 @@ const processStep = async (step: {
         sequenceId: step.sequence.id,
         phone: step.sequence.lead.phone,
         agentPrompt: step.content,
-        leadName: step.sequence.lead.name,
-        leadCompany: step.sequence.lead.company,
       });
 
       return {
