@@ -96,14 +96,18 @@ export const triggerCall = async (
 const getCallerNumber = async (userId: string): Promise<string> => {
   const settings = await prisma.userSettings.findUnique({
     where: { userId },
-    select: { twilioPhoneNumber: true },
+    select: { retellCallerNumber: true, twilioPhoneNumber: true },
   });
-
-  if (!settings?.twilioPhoneNumber) {
+  console.log({settings});
+  const from =
+    settings?.retellCallerNumber?.trim() ||
+    settings?.twilioPhoneNumber?.trim();
+  console.log({from});
+  if (!from) {
     throw new Error(
-      "Phone number not configured. Set Twilio Phone Number in Settings."
+      "No outbound caller number for AI calls. Set Retell Caller Number in Settings (number purchased in Retell or imported via SIP), or set Twilio Phone Number as fallback. The number must exist in your Retell account."
     );
   }
 
-  return settings.twilioPhoneNumber;
+  return from;
 };

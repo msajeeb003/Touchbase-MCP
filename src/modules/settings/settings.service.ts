@@ -77,6 +77,7 @@ const SETTINGS_SELECT = {
   twilioWhatsappNumber: true,
   retellApiKey: true,
   retellAgentId: true,
+  retellCallerNumber: true,
   createdAt: true,
   updatedAt: true,
 };

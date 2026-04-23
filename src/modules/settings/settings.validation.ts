@@ -37,6 +37,7 @@ export const updateSettingsSchema = z.object({
 
     retellApiKey: z.string().nullable().optional(),
     retellAgentId: z.string().nullable().optional(),
+    retellCallerNumber: z.string().nullable().optional(),
   }),
 });
 

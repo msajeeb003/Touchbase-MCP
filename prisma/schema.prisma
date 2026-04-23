@@ -179,6 +179,7 @@ model UserSettings {
   // Retell AI (calling)
   retellApiKey          String?  // AES-256-GCM encrypted
   retellAgentId         String?
+  retellCallerNumber    String?  // E.164; Retell-purchased or Twilio SIP number (must exist in Retell). Falls back to twilioPhoneNumber if unset.
 
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
