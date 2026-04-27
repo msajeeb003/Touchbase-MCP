@@ -63,6 +63,7 @@ const stepTypeSentCounts = (
 ) => {
   const sent = SEQUENCE_STEP_STATUS.SENT;
   const failed = SEQUENCE_STEP_STATUS.FAILED;
+  const calling = SEQUENCE_STEP_STATUS.CALLING;
   let emailSteps = 0;
   let smsSteps = 0;
   let whatsappSteps = 0;
@@ -84,7 +85,7 @@ const stepTypeSentCounts = (
       if (s.status === sent || s.status == failed) whatsappSent++;
     } else if (s.stepType === "CALL") {
       callSteps++;
-      if (s.status === sent || s.status == failed) callSent++;
+      if (s.status === sent || s.status == failed || s.status === calling) callSent++;
     }
   }
 
