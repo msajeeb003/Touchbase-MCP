@@ -2,7 +2,7 @@ import prisma from "../../shared/prisma";
 import AppError from "../../shared/errors/AppError";
 import { SettingsService } from "../settings/settings.service";
 import { generateContent } from "../../shared/services/ai.service";
-import { type AIProvider } from "../../shared/constants";
+import { type AIProvider, STEP_TYPE } from "../../shared/constants";
 import { buildPrompt, parseAIResponse } from "../../shared/services/prompt-builder";
 import { CreateStepInput, UpdateStepInput } from "./sequence-step.validation";
 import { SEQUENCE_STEP_STATUS } from "../../shared/sequence-step";
@@ -93,9 +93,28 @@ const createStep = async (
 const getSteps = async (userId: string, sequenceId: string) => {
   await verifySequenceOwnership(userId, sequenceId);
 
-  return prisma.sequenceStep.findMany({
+  const rows = await prisma.sequenceStep.findMany({
     where: { sequenceId },
     orderBy: { stepOrder: "asc" },
+    include: {
+      callLogs: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+      },
+    },
+  });
+
+  return rows.map(({ callLogs, ...step }) => {
+    console.log({callLogs, step});
+    const latest = callLogs[0] ?? null;
+    const callLog =
+      step.stepType === STEP_TYPE.CALL &&
+      step.status === SEQUENCE_STEP_STATUS.SENT &&
+      latest
+        ? latest
+        : null;
+
+    return { ...step, callLog };
   });
 };
 
