@@ -46,36 +46,67 @@ const fathomFetch = async (
 };
 
 type MeetingsQuery = {
-  created_after?: string;
-  created_before?: string;
+  cursor?: string;
   include_summary?: string;
   include_transcript?: string;
   include_action_items?: string;
 };
 
-const getMeetings = async (userId: string, query: MeetingsQuery) => {
+type FathomMeetingsPage = {
+  items: unknown[];
+  limit: number | null;
+  next_cursor: string | null;
+};
+
+type MeetingsListResult = {
+  items: unknown[];
+  limit: number | null;
+  next_cursor: string | null;
+  hasMore: boolean;
+};
+
+/** Fathom pages fetched per request (~10 meetings/page → ~30 per load). */
+const MAX_PAGES = 10;
+
+const getMeetings = async (
+  userId: string,
+  query: MeetingsQuery
+): Promise<MeetingsListResult> => {
   const apiKey = await getFathomApiKey(userId);
+  const { cursor: startCursor, ...filters } = query;
 
-  const allItems: unknown[] = [];
-  let cursor: string | undefined;
+  const items: unknown[] = [];
+  let cursor: string | undefined = startCursor;
+  let limit: number | null = null;
+  let next_cursor: string | null = null;
 
-  while (true) {
+  for (let page = 0; page < MAX_PAGES; page++) {
     const params: Record<string, string> = {
-      ...(query as Record<string, string>),
+      ...(filters as Record<string, string>),
     };
     if (cursor) params.cursor = cursor;
 
-    const data = (await fathomFetch(apiKey, "/meetings", params)) as {
-      items: unknown[];
-      next_cursor: string | null;
-    };
-    allItems.push(...(data.items || []));
+    const data = (await fathomFetch(
+      apiKey,
+      "/meetings",
+      params
+    )) as FathomMeetingsPage;
+
+    items.push(...(data.items || []));
+    limit = items.length;
+    // limit = data.limit ?? limit;
+    next_cursor = data.next_cursor;
 
     if (!data.next_cursor) break;
     cursor = data.next_cursor;
   }
 
-  return { items: allItems, total: allItems.length };
+  return {
+    items,
+    limit,
+    next_cursor,
+    hasMore: !!next_cursor,
+  };
 };
 
 const getTranscript = async (userId: string, recordingId: string) => {
