@@ -53,15 +53,13 @@ type MeetingsQuery = {
   include_action_items?: string;
 };
 
-const MAX_PAGES = 10;
-
 const getMeetings = async (userId: string, query: MeetingsQuery) => {
   const apiKey = await getFathomApiKey(userId);
 
   const allItems: unknown[] = [];
-  let cursor: string | undefined = undefined;
+  let cursor: string | undefined;
 
-  for (let page = 0; page < MAX_PAGES; page++) {
+  while (true) {
     const params: Record<string, string> = {
       ...(query as Record<string, string>),
     };
