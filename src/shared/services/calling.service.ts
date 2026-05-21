@@ -41,23 +41,7 @@ export const triggerCall = async (
   params: TriggerCallParams
 ): Promise<TriggerCallResult> => {
   const config = await getRetellConfig(params.userId);
-  console.log({config});
   const fromNumber = await getCallerNumber(params.userId);
-  console.log({fromNumber});
-
-  console.log({
-    from_number: fromNumber,
-    to_number: params.phone,
-    agent_id: config.agentId,
-    retell_llm_dynamic_variables: {
-      context: params.agentPrompt,
-    },
-    metadata: {
-      stepId: params.stepId,
-      sequenceId: params.sequenceId,
-      userId: params.userId,
-    },
-  });
 
   const response = await fetch(
     "https://api.retellai.com/v2/create-phone-call",
@@ -89,7 +73,6 @@ export const triggerCall = async (
   }
 
   const data = (await response.json()) as { call_id: string };
-  console.log({data});
   return { callId: data.call_id };
 };
 
@@ -98,11 +81,9 @@ const getCallerNumber = async (userId: string): Promise<string> => {
     where: { userId },
     select: { retellCallerNumber: true, twilioPhoneNumber: true },
   });
-  console.log({settings});
   const from =
     settings?.retellCallerNumber?.trim() ||
     settings?.twilioPhoneNumber?.trim();
-  console.log({from});
   if (!from) {
     throw new Error(
       "No outbound caller number for AI calls. Set Retell Caller Number in Settings (number purchased in Retell or imported via SIP), or set Twilio Phone Number as fallback. The number must exist in your Retell account."

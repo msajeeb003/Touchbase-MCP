@@ -142,22 +142,6 @@ const getDashboard = async (userId: string, query: DashboardQuery = {}) => {
     }),
   ]);
 
-  console.log({
-    totalLeads,
-    totalEmailsSent,
-    totalSmsSent,
-    totalWhatsAppSent,
-    totalCallsMade,
-    activeSequences,
-    totalTranscripts,
-    leadsByStage,
-    sequencesByStatus,
-    sentSteps,
-    deliveryRaw,
-    leadsCreated,
-    upcomingSteps,
-
-  });
 
   return {
     summary: {

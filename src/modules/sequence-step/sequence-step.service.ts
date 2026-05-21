@@ -105,7 +105,6 @@ const getSteps = async (userId: string, sequenceId: string) => {
   });
 
   return rows.map(({ callLogs, ...step }) => {
-    console.log({callLogs, step});
     const latest = callLogs[0] ?? null;
     const callLog =
       step.stepType === STEP_TYPE.CALL &&

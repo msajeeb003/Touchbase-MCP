@@ -13,6 +13,10 @@ interface AIConfig {
   model?: string;
 }
 
+export interface GenerateOptions {
+  temperature?: number;
+}
+
 interface AIResponse {
   content: string;
 }
@@ -20,7 +24,8 @@ interface AIResponse {
 const generateWithOpenAI = async (
   apiKey: string,
   model: string,
-  prompt: string
+  prompt: string,
+  options?: GenerateOptions
 ): Promise<string> => {
   const client = new OpenAI({ apiKey });
 
@@ -30,7 +35,7 @@ const generateWithOpenAI = async (
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: prompt },
     ],
-    temperature: 0.7,
+    temperature: options?.temperature ?? 0.7,
   });
 
   const text = response.choices[0]?.message?.content;
@@ -44,10 +49,14 @@ const generateWithOpenAI = async (
 const generateWithGemini = async (
   apiKey: string,
   model: string,
-  prompt: string
+  prompt: string,
+  options?: GenerateOptions
 ): Promise<string> => {
   const genAI = new GoogleGenerativeAI(apiKey);
-  const geminiModel = genAI.getGenerativeModel({ model });
+  const geminiModel = genAI.getGenerativeModel({
+    model,
+    generationConfig: { temperature: options?.temperature ?? 0.7 },
+  });
 
   const result = await geminiModel.generateContent(prompt);
   const text = result.response.text();
@@ -62,7 +71,8 @@ const generateWithGemini = async (
 const generateWithClaude = async (
   apiKey: string,
   model: string,
-  prompt: string
+  prompt: string,
+  options?: GenerateOptions
 ): Promise<string> => {
   const client = new Anthropic({ apiKey });
 
@@ -70,6 +80,7 @@ const generateWithClaude = async (
     model,
     max_tokens: 4096,
     system: SYSTEM_PROMPT,
+    temperature: options?.temperature ?? 0.7,
     messages: [{ role: "user", content: prompt }],
   });
 
@@ -83,7 +94,8 @@ const generateWithClaude = async (
 
 export const generateContent = async (
   config: AIConfig,
-  prompt: string
+  prompt: string,
+  options?: GenerateOptions
 ): Promise<AIResponse> => {
   const model = config.model || DEFAULT_AI_MODELS[config.provider];
 
@@ -92,13 +104,28 @@ export const generateContent = async (
 
     switch (config.provider) {
       case AI_PROVIDER.OPENAI:
-        content = await generateWithOpenAI(config.apiKey, model, prompt);
+        content = await generateWithOpenAI(
+          config.apiKey,
+          model,
+          prompt,
+          options
+        );
         break;
       case AI_PROVIDER.GEMINI:
-        content = await generateWithGemini(config.apiKey, model, prompt);
+        content = await generateWithGemini(
+          config.apiKey,
+          model,
+          prompt,
+          options
+        );
         break;
       case AI_PROVIDER.CLAUDE:
-        content = await generateWithClaude(config.apiKey, model, prompt);
+        content = await generateWithClaude(
+          config.apiKey,
+          model,
+          prompt,
+          options
+        );
         break;
       default:
         throw new AppError(400, `Unsupported AI provider: ${config.provider}`);

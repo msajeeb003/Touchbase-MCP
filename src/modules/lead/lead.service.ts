@@ -22,6 +22,10 @@ import {
   CreateLeadInput,
   UpdateLeadInput,
 } from "./lead.validation";
+import {
+  applyColumnMapping,
+  resolveLeadCsvColumnMapping,
+} from "./csv-header-mapper";
 
 type LeadQuery = {
   page?: number;
@@ -187,46 +191,28 @@ const deleteManyLeads = async (userId: string, payload: BulkDeleteLeadsInput) =>
 
 const MAX_CSV_ROWS = 1000;
 
-const COLUMN_MAP: Record<string, string> = {
-  name: "name",
-  email: "email",
-  phone: "phone",
-  notes: "notes",
-  company: "company",
-  location: "location",
-  status: "status",
-  followupstage: "followUpStage",
-  "follow-up stage": "followUpStage",
-  "follow up stage": "followUpStage",
-};
-
-const normalizeColumns = (
-  row: Record<string, string>
-): Record<string, string> => {
-  const result: Record<string, string> = {};
-  for (const [key, value] of Object.entries(row)) {
-    const normalized = key.trim().toLowerCase();
-    const mapped = COLUMN_MAP[normalized];
-    if (mapped) {
-      result[mapped] = value.trim();
-    }
-  }
-  return result;
-};
-
 const isValidEmail = (email: string): boolean => {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 };
 
 type ImportError = { row: number; email: string; reason: string };
 
-const importCSV = async (userId: string, fileBuffer: Buffer) => {
-  const content = fileBuffer
-    .toString("utf-8")
-    .replace(/^\uFEFF/, ""); // strip BOM
+export type CsvImportResult = {
+  total: number;
+  success: number;
+  failed: number;
+  errors: ImportError[];
+  columnMapping: Record<string, string>;
+};
+
+const importCSV = async (
+  userId: string,
+  fileBuffer: Buffer
+): Promise<CsvImportResult> => {
+  const content = fileBuffer.toString("utf-8").replace(/^\uFEFF/, "");
 
   let records: Record<string, string>[];
-  
+
   try {
     records = parse(content, {
       columns: true,
@@ -234,13 +220,11 @@ const importCSV = async (userId: string, fileBuffer: Buffer) => {
       trim: true,
       relax_column_count: true,
     });
-    console.log({records});
   } catch (err) {
     const detail = err instanceof Error ? err.message : "unknown parse error";
     throw new AppError(400, `Invalid CSV format: ${detail}`);
   }
 
-  
   if (records.length === 0) {
     throw new AppError(400, "CSV file is empty");
   }
@@ -248,6 +232,8 @@ const importCSV = async (userId: string, fileBuffer: Buffer) => {
   if (records.length > MAX_CSV_ROWS) {
     throw new AppError(400, `CSV exceeds maximum of ${MAX_CSV_ROWS} rows`);
   }
+
+  const columnMapping = await resolveLeadCsvColumnMapping(userId, records);
 
   const existingLeads = await prisma.lead.findMany({
     where: { userId },
@@ -266,7 +252,7 @@ const importCSV = async (userId: string, fileBuffer: Buffer) => {
 
   for (let i = 0; i < records.length; i++) {
     const rowNum = i + 2; // +2 for header row + 0-index
-    const row = normalizeColumns(records[i]);
+    const row = applyColumnMapping(records[i], columnMapping);
 
     if (!row.name) {
       errors.push({
@@ -356,6 +342,7 @@ const importCSV = async (userId: string, fileBuffer: Buffer) => {
     success: successCount,
     failed: errors.length,
     errors,
+    columnMapping,
   };
 };
 
