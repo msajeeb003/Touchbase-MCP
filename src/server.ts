@@ -23,7 +23,18 @@ async function main() {
 
     app.listen(config.port, () => {
       console.log(`Server is running on port ${config.port}`);
-      startSendProcessor();
+
+      const runSendProcessor =
+        config.env === "production" ||
+        process.env.ENABLE_SEND_PROCESSOR === "true";
+
+      if (runSendProcessor) {
+        startSendProcessor();
+      } else {
+        console.log(
+          "[SendProcessor] Disabled in development (set ENABLE_SEND_PROCESSOR=true to enable)"
+        );
+      }
     });
   } catch (error) {
     console.error("Failed to start server:", error);

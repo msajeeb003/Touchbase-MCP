@@ -30,8 +30,8 @@ model Lead {
   email         String?
   phone         String?
   notes         String?
-  company       String
-  location      String
+  company       String?
+  location      String?
   status        String           @default("Not Active")
   followUpStage String?
   createdAt     DateTime         @default(now())

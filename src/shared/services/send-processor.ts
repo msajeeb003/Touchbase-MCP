@@ -24,7 +24,7 @@ const processStep = async (step: {
       name: string;
       email: string | null;
       phone: string | null;
-      company: string;
+      company: string | null;
     };
   };
 }): Promise<{ success: boolean; log: string; async?: boolean }> => {

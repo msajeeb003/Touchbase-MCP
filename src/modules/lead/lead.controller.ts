@@ -89,6 +89,9 @@ const importCSV = catchAsync(async (req: AuthRequest, res: Response) => {
     throw new AppError(400, "CSV file is required");
   }
 
+  // console.log(req.file);
+  // return
+
 
   const result = await LeadService.importCSV(req.user!.id, req.file.buffer);
 

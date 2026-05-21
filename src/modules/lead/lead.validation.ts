@@ -38,17 +38,37 @@ const optionalNotesPatch = z.preprocess(
   z.union([z.string(), z.null()]).optional()
 );
 
+const optionalStringPatch = z.preprocess(
+  patchEmptyToUndefined,
+  z.union([z.string(), z.null()]).optional()
+);
+
+const requireEmailOrPhone = (
+  data: { email?: string; phone?: string },
+  ctx: z.RefinementCtx
+) => {
+  if (!data.email && !data.phone) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Either email or phone is required for follow-up",
+      path: ["email"],
+    });
+  }
+};
+
 export const createLeadSchema = z.object({
-  body: z.object({
-    name: z.string({ required_error: "Name is required" }).min(1),
-    email: optionalEmail,
-    phone: optionalPhone,
-    notes: optionalNotes,
-    company: z.string().optional(),
-    location: z.string().optional(),
-    status: z.string().optional(),
-    followUpStage: z.string({ required_error: "Follow-up stage is required" }).min(1),
-  }),
+  body: z
+    .object({
+      name: z.string({ required_error: "Name is required" }).min(1),
+      email: optionalEmail,
+      phone: optionalPhone,
+      notes: optionalNotes,
+      company: z.string().optional(),
+      location: z.string().optional(),
+      status: z.string().optional(),
+      followUpStage: z.string().min(1).optional(),
+    })
+    .superRefine(requireEmailOrPhone),
 });
 
 export const bulkDeleteLeadsSchema = z.object({
@@ -66,8 +86,8 @@ export const updateLeadSchema = z.object({
     email: optionalEmailPatch,
     phone: optionalPhonePatch,
     notes: optionalNotesPatch,
-    company: z.string().min(1).optional(),
-    location: z.string().min(1).optional(),
+    company: optionalStringPatch,
+    location: optionalStringPatch,
     status: z.string().optional(),
     followUpStage: z.string().nullable().optional(),
   }),

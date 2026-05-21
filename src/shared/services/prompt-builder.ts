@@ -15,7 +15,7 @@ interface LeadInfo {
   name: string;
   email: string | null;
   phone?: string | null;
-  company: string;
+  company: string | null;
   location?: string | null;
   followUpStage: string | null;
   notes?: string | null;

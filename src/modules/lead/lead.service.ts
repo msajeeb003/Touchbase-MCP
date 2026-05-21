@@ -49,9 +49,9 @@ const createLead = async (userId: string, payload: CreateLeadInput) => {
       email: payload.email ?? null,
       phone: payload.phone ?? null,
       notes: payload.notes ?? null,
-      followUpStage: payload.followUpStage,
-      company: payload.company ?? "",
-      location: payload.location ?? "",
+      followUpStage: payload.followUpStage ?? "New",
+      company: payload.company ?? null,
+      location: payload.location ?? null,
       status: payload.status ?? "Not Active",
     } as Prisma.LeadUncheckedCreateInput,
   });
@@ -118,7 +118,7 @@ const updateLead = async (
   leadId: string,
   payload: UpdateLeadInput
 ) => {
-  await getLeadById(userId, leadId);
+  const existing = await getLeadById(userId, leadId);
 
   if (payload.email) {
     const duplicate = await prisma.lead.findFirst({
@@ -140,11 +140,20 @@ const updateLead = async (
   if (payload.email !== undefined) data.email = payload.email ?? null;
   if (payload.phone !== undefined) data.phone = payload.phone ?? null;
   if (payload.notes !== undefined) data.notes = payload.notes ?? null;
-  if (payload.company !== undefined) data.company = payload.company;
-  if (payload.location !== undefined) data.location = payload.location;
+  if (payload.company !== undefined) data.company = payload.company ?? null;
+  if (payload.location !== undefined) data.location = payload.location ?? null;
   if (payload.status !== undefined) data.status = payload.status;
   if (payload.followUpStage !== undefined) {
     data.followUpStage = payload.followUpStage;
+  }
+
+  const nextEmail =
+    payload.email !== undefined ? payload.email : existing.email;
+  const nextPhone =
+    payload.phone !== undefined ? payload.phone : existing.phone;
+
+  if (!nextEmail && !nextPhone) {
+    throw new AppError(400, "Either email or phone is required for follow-up");
   }
 
   return prisma.lead.update({
@@ -268,6 +277,15 @@ const importCSV = async (userId: string, fileBuffer: Buffer) => {
       continue;
     }
 
+    if (!row.email && !row.phone) {
+      errors.push({
+        row: rowNum,
+        email: "",
+        reason: "Either email or phone is required for follow-up",
+      });
+      continue;
+    }
+
     if (row.email && !isValidEmail(row.email)) {
       errors.push({
         row: rowNum,
@@ -306,10 +324,10 @@ const importCSV = async (userId: string, fileBuffer: Buffer) => {
       email: row.email || undefined,
       phone: row.phone || undefined,
       notes: row.notes || undefined,
-      company: row.company || "",
-      location: row.location || "",
+      company: row.company || undefined,
+      location: row.location || undefined,
       status: row.status || "Not Active",
-      followUpStage: row.followUpStage || "New Lead",
+      followUpStage: row.followUpStage || "New",
     });
   }
 
@@ -324,8 +342,8 @@ const importCSV = async (userId: string, fileBuffer: Buffer) => {
         phone: lead.phone ?? null,
         notes: lead.notes ?? null,
         followUpStage: lead.followUpStage,
-        company: lead.company ?? "",
-        location: lead.location ?? "",
+        company: lead.company ?? null,
+        location: lead.location ?? null,
         status: lead.status ?? "Not Active",
       })) as Prisma.LeadCreateManyInput[],
       skipDuplicates: true,
