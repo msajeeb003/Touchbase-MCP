@@ -7,7 +7,11 @@ import {
 } from "./prompt-template.validation";
 import { SettingsService } from "../settings/settings.service";
 import { generateContent } from "../../shared/services/ai.service";
-import { type AIProvider, type StepType } from "../../shared/constants";
+import {
+  type AIProvider,
+  type StepType,
+  STEP_TYPE_LIST,
+} from "../../shared/constants";
 
 const createTemplate = async (
   userId: string,
@@ -96,9 +100,63 @@ const AVAILABLE_VARIABLES = [
 
 const LINK_STEP_TYPES: StepType[] = ["EMAIL", "SMS", "WHATSAPP"];
 
-const uniqueStepTypesInOrder = (pattern: StepType[]): StepType[] => [
-  ...new Set(pattern),
-];
+/** Full cycle as entered (normalized case, keeps duplicates and order). */
+const formatFullStepPattern = (pattern: StepType[]): string =>
+  pattern.map((t) => String(t).toUpperCase().trim()).join(", ");
+
+/** Unique channels in first-seen order — for OUTPUT FORMAT / STYLE only. */
+const uniqueChannelsInOrder = (pattern: StepType[]): StepType[] => {
+  const seen = new Set<StepType>();
+  const result: StepType[] = [];
+  for (const t of pattern) {
+    const normalized = String(t).toUpperCase().trim() as StepType;
+    if (!STEP_TYPE_LIST.includes(normalized) || seen.has(normalized)) continue;
+    seen.add(normalized);
+    result.push(normalized);
+  }
+  return result;
+};
+
+const buildCanonicalSequencePlanSection = (
+  fullStepPattern: string,
+  interval: number
+): string => `## SEQUENCE PLAN (for scheduling — read carefully)
+
+- StepTypes pattern: ${fullStepPattern} (repeat cyclically to match total step count when a sequence is generated).
+- IntervalDays: ${interval} (days between consecutive steps).
+
+(The app may also pass exact step type and order in "--- STEP CONTEXT ---". Always obey that block for the current message.)`;
+
+/** Overwrite AI-written SEQUENCE PLAN so the step pattern matches user input exactly. */
+const injectSequencePlanSection = (
+  template: string,
+  fullStepPattern: string,
+  interval: number
+): string => {
+  const canonical = buildCanonicalSequencePlanSection(
+    fullStepPattern,
+    interval
+  );
+
+  const sectionRegex =
+    /## SEQUENCE PLAN[\s\S]*?(?=\n---\s*\n|\n## [A-Z])/m;
+
+  if (sectionRegex.test(template)) {
+    return template.replace(sectionRegex, canonical);
+  }
+
+  const firstSectionBreak = template.indexOf("\n---\n");
+  if (firstSectionBreak !== -1) {
+    return (
+      template.slice(0, firstSectionBreak) +
+      "\n\n" +
+      canonical +
+      template.slice(firstSectionBreak)
+    );
+  }
+
+  return `${template}\n\n${canonical}`;
+};
 
 const STEP_OUTPUT_FORMAT: Record<
   StepType,
@@ -210,29 +268,28 @@ const buildStyleReferencesSection = (
     .join("\n\n");
 
 const buildExampleTemplate = (
-  stepPattern: string,
+  fullStepPattern: string,
   interval: number,
-  types: StepType[],
+  channels: StepType[],
   hasCtaLink: boolean
 ): string => {
-  const stepTypesLabel = types.join(", ");
-  const outputSection = buildOutputFormatSection(types, hasCtaLink);
-  const styleSection = buildStyleReferencesSection(types, hasCtaLink);
+  const channelsLabel = channels.join(", ");
+  const outputSection = buildOutputFormatSection(channels, hasCtaLink);
+  const styleSection = buildStyleReferencesSection(channels, hasCtaLink);
+  const sequencePlan = buildCanonicalSequencePlanSection(
+    fullStepPattern,
+    interval
+  );
 
   return `You are a Virtual Assistant representing the sender described in this template.
 
 A meeting transcript (when available) may be appended below under "--- TRANSCRIPT ---".
 
-Your task is to generate ONE message for the CURRENT STEP ONLY, using the step context appended below (step number, channel type: ${stepTypesLabel}, position in sequence).
+Your task is to generate ONE message for the CURRENT STEP ONLY, using the step context appended below (step number, channel type from the sequence plan, position in sequence).
 
 ---
 
-## SEQUENCE PLAN (for scheduling — read carefully)
-
-- StepTypes pattern: ${stepPattern} (repeat or truncate to match total step count).
-- IntervalDays: ${interval} (days between consecutive steps).
-
-(The app may also pass exact step type and order in "--- STEP CONTEXT ---". Always obey that block for the current message.)
+${sequencePlan}
 
 ---
 
@@ -351,8 +408,8 @@ const buildCtaInstruction = (
 
 const buildGenerationPrompt = (input: GeneratePromptTextInput): string => {
   const pattern = input.stepTypesPattern as StepType[];
-  const stepPattern = pattern.join(", ");
-  const uniqueTypes = uniqueStepTypesInOrder(pattern);
+  const fullStepPattern = formatFullStepPattern(pattern);
+  const channelsInPattern = uniqueChannelsInOrder(pattern);
   const interval = input.intervalDays ?? 3;
   const tone = input.toneStyle ?? "Professional but warm and conversational";
 
@@ -360,7 +417,7 @@ const buildGenerationPrompt = (input: GeneratePromptTextInput): string => {
   const hasCompanyName = !!input.companyName;
 
   const ctaInstruction = buildCtaInstruction(
-    uniqueTypes,
+    channelsInPattern,
     hasCtaLink,
     input.ctaLink
   );
@@ -369,19 +426,19 @@ const buildGenerationPrompt = (input: GeneratePromptTextInput): string => {
     ? `Company Name: ${input.companyName}`
     : `Company Name: Not provided. Reference the sender by name only. Do NOT invent a company name.`;
 
-  const typesList = uniqueTypes.join(", ");
+  const channelsList = channelsInPattern.join(", ");
   const exampleTemplate = buildExampleTemplate(
-    stepPattern,
+    fullStepPattern,
     interval,
-    uniqueTypes,
+    channelsInPattern,
     hasCtaLink
   );
-  const outputFormatRules = buildOutputFormatRulesList(uniqueTypes);
+  const outputFormatRules = buildOutputFormatRulesList(channelsInPattern);
   const generationSection5 = buildGenerationPromptSectionList(
-    uniqueTypes,
+    channelsInPattern,
     hasCtaLink
   );
-  const styleTypesLabel = uniqueTypes.join(", ");
+  const styleChannelsLabel = channelsInPattern.join(", ");
 
   return `You are an expert prompt engineer. Your task is to generate a PROMPT TEMPLATE (a meta-prompt) that will later be used to instruct an AI to write follow-up messages for leads.
 
@@ -390,13 +447,15 @@ CRITICAL RULES:
 2. The template MUST use these placeholder variables (double curly braces) — do NOT replace them with real values:
    ${AVAILABLE_VARIABLES.join(", ")}
 3. The template MUST follow the exact structural format shown in the example below.
-4. The OUTPUT FORMAT section is MANDATORY and must include ONLY these step types: ${typesList}.
+4. The OUTPUT FORMAT section is MANDATORY and must include ONLY these channels (one block each): ${channelsList}.
 ${outputFormatRules}
-5. Do NOT include OUTPUT FORMAT or STYLE REFERENCES for step types not in the pattern (${typesList}).
-6. The template must include a SEQUENCE PLAN section with the user's full stepTypes pattern and interval.
+5. Do NOT include OUTPUT FORMAT or STYLE REFERENCES for channels not in this list: ${channelsList}.
+6. SEQUENCE PLAN — use this EXACT text verbatim (do not deduplicate, truncate, reorder, or drop any entry):
+${buildCanonicalSequencePlanSection(fullStepPattern, interval)}
 7. The template must instruct AI to generate ONE message for the CURRENT STEP ONLY.
-8. Include STYLE REFERENCES with examples ONLY for: ${styleTypesLabel} (using {{lead.name}} and other variables).
+8. Include STYLE REFERENCES with examples ONLY for: ${styleChannelsLabel} (using {{lead.name}} and other variables).
 9. Do NOT invent or hallucinate any URL or company name that was not provided by the user.
+10. Do NOT change the StepTypes pattern from the user's input: ${fullStepPattern}
 
 ---
 
@@ -417,13 +476,13 @@ ${input.sequenceGoal}
 
 Tone & Style: ${tone}
 
-Step Types Pattern: ${stepPattern}
+Step Types Pattern (full cycle — preserve order and duplicates): ${fullStepPattern}
 Interval Days: ${interval}
 ${input.additionalNotes ? `\nAdditional Notes:\n${input.additionalNotes}` : ""}
 
 ---
 
-EXAMPLE TEMPLATE (follow this structure; include ONLY the step types listed above):
+EXAMPLE TEMPLATE (follow this structure; OUTPUT FORMAT / STYLE only for channels: ${channelsList}):
 
 ${exampleTemplate}
 
@@ -431,7 +490,7 @@ ${exampleTemplate}
 
 NOW generate a complete prompt template based on the user's inputs above. Follow the same section structure:
 1. Opening context (who the AI is writing for, scenario)
-2. SEQUENCE PLAN (StepTypes pattern: ${stepPattern}, IntervalDays: ${interval})
+2. SEQUENCE PLAN — copy the exact block from rule 6 above
 3. GOALS (derived from the user's scenario and sequence goal)
 4. PERSONALIZATION & LINKS section must include:
    ${ctaInstruction}
@@ -439,7 +498,7 @@ NOW generate a complete prompt template based on the user's inputs above. Follow
    - Use {{variables}} for lead personalization
 5. OUTPUT FORMAT (STRICT) — include ONLY these channels, no others:
 ${generationSection5}
-6. STYLE REFERENCES — include examples ONLY for: ${styleTypesLabel}${!hasCtaLink ? " (no URLs in examples)" : ""}
+6. STYLE REFERENCES — include examples ONLY for: ${styleChannelsLabel}${!hasCtaLink ? " (no URLs in examples)" : ""}
 
 Output ONLY the template text. No explanations, no markdown code fences.`;
 };
@@ -461,6 +520,10 @@ const generatePromptText = async (
     );
   }
 
+  const pattern = input.stepTypesPattern as StepType[];
+  const fullStepPattern = formatFullStepPattern(pattern);
+  const interval = input.intervalDays ?? 3;
+
   const prompt = buildGenerationPrompt(input);
 
   const aiResponse = await generateContent(
@@ -472,11 +535,18 @@ const generatePromptText = async (
     prompt
   );
 
-  const promptText = aiResponse.content
+  let promptText = aiResponse.content
     .replace(/^```(?:markdown|text)?\n?/i, "")
     .replace(/\n?```$/i, "")
     .trim();
 
+  promptText = injectSequencePlanSection(
+    promptText,
+    fullStepPattern,
+    interval
+  );
+
+  console.log({promptText,fullStepPattern,interval});
   return { promptText };
 };
 

@@ -373,7 +373,6 @@ const updateSequence = async (
   if (payload.status) {
     return changeSequenceStatus(sequenceId, sequence, payload.status);
   }
-  // console.log({payload});
   return prisma.sequence.update({
     where: { id: sequenceId },
     data: payload,
@@ -407,14 +406,42 @@ const deleteSequence = async (userId: string, sequenceId: string) => {
 
 const PLAN_EXTRACTION_PROMPT = (promptText: string, totalSteps: number) => `
 Analyze the following follow-up template and return a JSON object with exactly 2 keys:
-- "stepTypes": an array of exactly ${totalSteps} values, each must be one of: ${STEP_TYPE_LIST.join(", ")}. Infer the communication pattern from the template (e.g. email first, then sms, then whatsapp, alternating, etc.).
-- "intervalDays": a positive integer representing the number of days between each step.
+- "stepTypesPattern": the repeating cycle of step types from the template (e.g. ["EMAIL", "SMS"] or ["EMAIL", "SMS", "WHATSAPP"]). Each value must be one of: ${STEP_TYPE_LIST.join(", ")}. List ONLY one full cycle in order — do NOT repeat entries to match step count.
+- "intervalDays": a positive integer for days between consecutive steps.
+
+The sequence has ${totalSteps} total steps. The application will repeat stepTypesPattern cyclically until there are ${totalSteps} steps (e.g. pattern ["EMAIL","SMS"] with ${totalSteps} steps → EMAIL, SMS, EMAIL, SMS, …).
 
 Template:
 ${promptText}
 
 Return ONLY raw JSON. No explanation, no markdown, no code block.
 `.trim();
+
+/** Repeat pattern cyclically until length === totalSteps. */
+const expandStepTypesToTotal = (
+  pattern: string[],
+  totalSteps: number
+): string[] => {
+  const result: string[] = [];
+  for (let i = 0; i < totalSteps; i++) {
+    result.push(pattern[i % pattern.length]);
+  }
+  return result;
+};
+
+const normalizeStepType = (
+  value: unknown,
+  validTypes: Set<string>
+): string => {
+  const normalized = String(value).toUpperCase().trim();
+  if (!validTypes.has(normalized)) {
+    throw new AppError(
+      502,
+      `AI returned invalid step type "${value}". Allowed: ${STEP_TYPE_LIST.join(", ")}`
+    );
+  }
+  return normalized;
+};
 
 const extractPlanFromAI = async (
   provider: string,
@@ -423,7 +450,6 @@ const extractPlanFromAI = async (
   promptText: string,
   totalSteps: number
 ): Promise<{ stepTypes: string[]; intervalDays: number }> => {
-  console.log({promptText,totalSteps});
   const prompt = PLAN_EXTRACTION_PROMPT(promptText, totalSteps);
 
   const aiResponse = await generateContent(
@@ -450,40 +476,37 @@ const extractPlanFromAI = async (
     );
   }
 
+  const record = parsed as Record<string, unknown>;
+
   if (
     typeof parsed !== "object" ||
     parsed === null ||
-    !Array.isArray((parsed as Record<string, unknown>).stepTypes) ||
-    typeof (parsed as Record<string, unknown>).intervalDays !== "number"
+    typeof record.intervalDays !== "number"
   ) {
     throw new AppError(
       502,
-      "AI plan response is missing required fields (stepTypes, intervalDays)."
+      "AI plan response is missing required fields (stepTypesPattern, intervalDays)."
     );
   }
 
-  const plan = parsed as { stepTypes: unknown[]; intervalDays: number };
-
-  const validTypes = new Set<string>(STEP_TYPE_LIST);
-  const stepTypes = plan.stepTypes.map((t) => {
-    const normalized = String(t).toUpperCase().trim();
-    if (!validTypes.has(normalized)) {
-      throw new AppError(
-        502,
-        `AI returned invalid step type "${t}". Allowed: ${STEP_TYPE_LIST.join(", ")}`
-      );
-    }
-    return normalized;
-  });
-
-  if (stepTypes.length !== totalSteps) {
+  const rawPattern = record.stepTypesPattern ?? record.stepTypes;
+  if (!Array.isArray(rawPattern) || rawPattern.length === 0) {
     throw new AppError(
       502,
-      `AI returned ${stepTypes.length} step types but sequence has ${totalSteps} steps.`
+      "AI plan response must include a non-empty stepTypesPattern array."
     );
   }
 
-  const intervalDays = Math.round(plan.intervalDays);
+  const validTypes = new Set<string>(STEP_TYPE_LIST);
+  const cycle = rawPattern.map((t) => normalizeStepType(t, validTypes));
+
+  const stepTypes =
+    cycle.length === totalSteps
+      ? cycle
+      : expandStepTypesToTotal(cycle, totalSteps);
+
+
+  const intervalDays = Math.round(record.intervalDays as number);
   if (intervalDays < 1) {
     throw new AppError(502, "AI returned an invalid intervalDays (must be >= 1).");
   }
@@ -537,8 +560,6 @@ const generateSteps = async (userId: string, sequenceId: string) => {
     sequence.totalSteps
   );
 
-  console.log({stepTypes, intervalDays});
-  // return;
 
   // 4. Determine which steps are missing
   const existingOrders = new Set(sequence.steps.map((s) => s.stepOrder));
