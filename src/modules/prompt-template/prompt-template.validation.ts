@@ -53,9 +53,8 @@ export const generatePromptTextSchema = z.object({
       .optional(),
     stepTypesPattern: z
       .array(stepTypeItem)
-      .min(2, "At least 2 step types required")
-      .max(20)
-      .optional(),
+      .min(1, "At least one step type is required")
+      .max(20),
     intervalDays: z.number().int().min(1).max(90).optional(),
     toneStyle: z.string().max(500).optional(),
     additionalNotes: z.string().max(2000).optional(),

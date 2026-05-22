@@ -423,6 +423,7 @@ const extractPlanFromAI = async (
   promptText: string,
   totalSteps: number
 ): Promise<{ stepTypes: string[]; intervalDays: number }> => {
+  console.log({promptText,totalSteps});
   const prompt = PLAN_EXTRACTION_PROMPT(promptText, totalSteps);
 
   const aiResponse = await generateContent(
@@ -535,6 +536,9 @@ const generateSteps = async (userId: string, sequenceId: string) => {
     sequence.promptTemplate.promptText,
     sequence.totalSteps
   );
+
+  console.log({stepTypes, intervalDays});
+  // return;
 
   // 4. Determine which steps are missing
   const existingOrders = new Set(sequence.steps.map((s) => s.stepOrder));

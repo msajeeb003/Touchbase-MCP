@@ -7,7 +7,7 @@ import {
 } from "./prompt-template.validation";
 import { SettingsService } from "../settings/settings.service";
 import { generateContent } from "../../shared/services/ai.service";
-import { type AIProvider } from "../../shared/constants";
+import { type AIProvider, type StepType } from "../../shared/constants";
 
 const createTemplate = async (
   userId: string,
@@ -94,19 +94,143 @@ const AVAILABLE_VARIABLES = [
   "{{sequence.name}}",
 ];
 
-const EXAMPLE_TEMPLATE = `You are a Virtual Assistant for Artech Digital, an AI development agency run by Artur Abdullin.
+const LINK_STEP_TYPES: StepType[] = ["EMAIL", "SMS", "WHATSAPP"];
 
-The client booked a call but didn't show up. A meeting transcript (when available) is appended below under "--- TRANSCRIPT ---".
+const uniqueStepTypesInOrder = (pattern: StepType[]): StepType[] => [
+  ...new Set(pattern),
+];
 
-Your task is to generate ONE message for the CURRENT STEP ONLY, using the step context appended below (step number, type EMAIL vs SMS, position in sequence).
+const STEP_OUTPUT_FORMAT: Record<
+  StepType,
+  (opts: { hasCtaLink: boolean }) => string
+> = {
+  EMAIL: ({ hasCtaLink }) => `### If current step is EMAIL
+
+1. **Line 1 MUST be exactly:** \`SUBJECT: <short, human subject line>\`
+2. **Line 2 MUST be blank.**
+3. **From line 3:** email body with greeting, body, sign-off.
+4. In the **first or second paragraph**, include a **brief project recap in one short paragraph** when a transcript is available.
+5. ${
+    hasCtaLink
+      ? "Include the CTA link once in the body."
+      : "Use a reply-based CTA (e.g., \"Reply to this email\"). Do NOT include any URL."
+  }
+6. Early steps: warmer / reconnection. Later steps: gentle, low-pressure urgency (still consultative).`,
+
+  SMS: ({ hasCtaLink }) => `### If current step is SMS
+
+- **No subject line.**
+- **2–4 short sentences max.** ${
+    hasCtaLink
+      ? "One clear CTA with the provided link."
+      : "One clear reply-based CTA. No URL."
+  }
+- Same strategic goals as email, but much tighter.`,
+
+  WHATSAPP: ({ hasCtaLink }) => `### If current step is WHATSAPP
+
+- **No subject line.**
+- **3–6 short sentences.** Conversational tone; light formatting (*bold*, _italic_) allowed.
+- ${
+    hasCtaLink
+      ? "Include the CTA link once."
+      : "Use a reply-based CTA. No URL."
+  }`,
+
+  CALL: () => `### If current step is CALL
+
+- **No subject line.**
+- **5–8 concise bullet points** as talking points for a live follow-up phone call.
+- Include discussion points, questions for the lead, and value propositions.
+- Do not use email subject/body format.`,
+};
+
+const STEP_STYLE_REFERENCE: Record<
+  StepType,
+  (opts: { hasCtaLink: boolean }) => string
+> = {
+  EMAIL: ({ hasCtaLink }) => {
+    const cta = hasCtaLink
+      ? "Grab a time here: https://example.com/book"
+      : "Reply if you'd like to continue the conversation.";
+    return `EMAIL (tone only):
+Subject: Following up on our conversation
+
+Hi {{lead.name}},
+
+[Short personalized opener based on context.]
+
+[Value proposition and next step.]
+
+${cta}
+
+Best,
+[Sender]`;
+  },
+
+  SMS: ({ hasCtaLink }) => {
+    const cta = hasCtaLink
+      ? " Book here: https://example.com/book"
+      : " Reply if you're interested.";
+    return `SMS (tone only):
+Hey {{lead.name}} — [brief context]. [One clear next step].${cta}`;
+  },
+
+  WHATSAPP: ({ hasCtaLink }) => {
+    const cta = hasCtaLink
+      ? " Link: https://example.com/book"
+      : " Let me know if you'd like to chat.";
+    return `WHATSAPP (tone only):
+Hi {{lead.name}}! [Friendly opener]. [Short value line].${cta}`;
+  },
+
+  CALL: () => `CALL (talking points only):
+- Open: reference {{lead.name}} and why you're calling
+- Recap their goal or pain from context
+- Offer next step (meeting, PRD session, demo)
+- Handle objection: timing / budget
+- Close: agree on a concrete follow-up action`,
+
+};
+
+const buildOutputFormatSection = (
+  types: StepType[],
+  hasCtaLink: boolean
+): string =>
+  types
+    .map((t) => STEP_OUTPUT_FORMAT[t]({ hasCtaLink }))
+    .join("\n\n");
+
+const buildStyleReferencesSection = (
+  types: StepType[],
+  hasCtaLink: boolean
+): string =>
+  types
+    .map((t) => STEP_STYLE_REFERENCE[t]({ hasCtaLink }))
+    .join("\n\n");
+
+const buildExampleTemplate = (
+  stepPattern: string,
+  interval: number,
+  types: StepType[],
+  hasCtaLink: boolean
+): string => {
+  const stepTypesLabel = types.join(", ");
+  const outputSection = buildOutputFormatSection(types, hasCtaLink);
+  const styleSection = buildStyleReferencesSection(types, hasCtaLink);
+
+  return `You are a Virtual Assistant representing the sender described in this template.
+
+A meeting transcript (when available) may be appended below under "--- TRANSCRIPT ---".
+
+Your task is to generate ONE message for the CURRENT STEP ONLY, using the step context appended below (step number, channel type: ${stepTypesLabel}, position in sequence).
 
 ---
 
 ## SEQUENCE PLAN (for scheduling — read carefully)
 
-The follow-up sequence alternates channels and uses a fixed gap between steps. When interpreting this template for planning:
-- StepTypes pattern: SMS, EMAIL, SMS, EMAIL, SMS, EMAIL (repeat or truncate to match total step count).
-- IntervalDays: 3 (days between consecutive steps).
+- StepTypes pattern: ${stepPattern} (repeat or truncate to match total step count).
+- IntervalDays: ${interval} (days between consecutive steps).
 
 (The app may also pass exact step type and order in "--- STEP CONTEXT ---". Always obey that block for the current message.)
 
@@ -114,93 +238,150 @@ The follow-up sequence alternates channels and uses a fixed gap between steps. W
 
 ## GOALS
 
-- Acknowledge politely that they missed the call — no blame; friendly and understanding.
-- Re-engage by referencing their goals, idea, or problem from the transcript (when present).
-- Encourage booking a PRD (Product Requirement Document) session. Explain clearly:
-  - Structured ~30-minute strategy call to define project roadmap.
-  - The PRD covers: functional & non-functional requirements, technical architecture, API integrations, feature scope, deliverables, timeline, and budget.
-  - Useful even if they don't hire you — it's a blueprint for future work.
-- Tone: professional, warm, consultative — trusted expert, not pushy salesperson.
+- [Derived from the user's scenario and sequence goal when the template is generated.]
 
 ---
 
 ## PERSONALIZATION & LINKS
 
-- Address the lead by name using {{lead.name}} (natural language; you may use only the first word as a first name if it reads well).
-- Company / context: {{lead.company}}, {{lead.location}}, stage: {{lead.followUpStage}}, notes: {{lead.notes}} (use only what helps; omit empty parts).
-- Booking CTA: https://calendly.com/artech-digital/30min-call
-- Sign emails as: Artur Abdullin (or "Best, Artur").
+- Address the lead by name using {{lead.name}}.
+- Company / context: {{lead.company}}, {{lead.location}}, stage: {{lead.followUpStage}}, notes: {{lead.notes}} (omit empty parts).
 
 ---
 
 ## OUTPUT FORMAT (STRICT — required for the system)
 
-### If current step is EMAIL
-
-1. **Line 1 MUST be exactly:** \`SUBJECT: <short, human subject line>\`
-2. **Line 2 MUST be blank.**
-3. **From line 3:** email body with greeting, body, sign-off.
-4. In the **first or second paragraph** of the body, include a **brief project recap in one short paragraph** (what they want, problem, direction) inferred from the transcript — this replaces a separate "summary section" so parsing stays correct.
-5. Include the Calendly link once in the body.
-6. Early steps: warmer / reconnection. Later steps: same tone but **gentle, low-pressure urgency** (still consultative).
-
-### If current step is SMS
-
-- **No subject line.**
-- **2–4 short sentences max.** One clear CTA with the same Calendly link.
-- Same strategic goals as email, but much tighter.
-
-### If current step is CALL
-
-- **No subject line.**
-- **5–8 concise bullet points** as talking points for a live follow-up phone call.
-- Include key discussion points, questions to ask the lead, and value propositions.
+${outputSection}
 
 ---
 
 ## STYLE REFERENCES (do not copy verbatim — adapt to transcript and step position)
 
-EMAIL (tone only):
-Subject: Missed you on our call — let's map your product properly
+${styleSection}`;
+};
 
-Hi {{lead.name}},
+const buildOutputFormatRulesList = (types: StepType[]): string =>
+  types
+    .map((t) => {
+      switch (t) {
+        case "EMAIL":
+          return "   - For EMAIL: Line 1 must be \"SUBJECT: <subject>\", Line 2 blank, then body";
+        case "SMS":
+          return "   - For SMS: No subject line, 2-4 sentences max";
+        case "WHATSAPP":
+          return "   - For WHATSAPP: No subject line, 3-6 sentences, conversational tone";
+        case "CALL":
+          return "   - For CALL: No subject line, 5-8 bullet talking points only";
+        default:
+          return "";
+      }
+    })
+    .filter(Boolean)
+    .join("\n");
 
-We didn't connect on our scheduled call — totally fine, these things happen. From what you shared about [specific thread from transcript], I'd still love to help you get clarity.
+const buildGenerationPromptSectionList = (
+  types: StepType[],
+  hasCtaLink: boolean
+): string => {
+  const lines: string[] = [];
 
-If you're open to it, let's do a PRD session: a focused call where we outline architecture, integrations, scope, deliverables, timeline, and budget. You keep the document as a blueprint either way.
+  for (const t of types) {
+    switch (t) {
+      case "EMAIL":
+        lines.push(
+          `   - EMAIL: Line 1 "SUBJECT: ...", Line 2 blank, body from Line 3`,
+          hasCtaLink
+            ? "     Include the CTA link once in the body."
+            : "     Use a reply-based CTA. Do NOT include any URL."
+        );
+        break;
+      case "SMS":
+        lines.push(
+          "   - SMS: No subject line",
+          hasCtaLink
+            ? "     2-4 sentences max with the CTA link once."
+            : "     2-4 sentences max with a reply-based CTA. No URL."
+        );
+        break;
+      case "WHATSAPP":
+        lines.push(
+          "   - WHATSAPP: No subject line, 3-6 sentences, conversational tone, light formatting (*bold*, _italic_) allowed",
+          hasCtaLink
+            ? "     Include the CTA link once."
+            : "     Reply-based CTA only. No URL."
+        );
+        break;
+      case "CALL":
+        lines.push(
+          "   - CALL: No subject line, 5-8 bullet talking points for a live sales follow-up call (not an email body)"
+        );
+        break;
+    }
+  }
 
-Grab a time here: https://calendly.com/artech-digital/30min-call
+  return lines.join("\n");
+};
 
-Best,
-Artur Abdullin
+const buildCtaInstruction = (
+  types: StepType[],
+  hasCtaLink: boolean,
+  ctaLink?: string
+): string => {
+  const linkTypes = types.filter((t) => LINK_STEP_TYPES.includes(t));
+  const hasCall = types.includes("CALL");
 
-SMS (tone only):
-Hey {{lead.name}} — Artur from Artech Digital. We missed you on our call; no worries. Want to lock a quick PRD session? You'll get a full roadmap doc either way. Book here: https://calendly.com/artech-digital/30min-call`;
+  if (hasCtaLink && ctaLink) {
+    const linkChannels =
+      linkTypes.length > 0 ? linkTypes.join(", ") : "N/A";
+    let text = `- Booking CTA: ${ctaLink}\n- Include this CTA link once in: ${linkChannels}.`;
+    if (hasCall) {
+      text +=
+        "\n- For CALL steps: mention the next step verbally; do not read a long URL aloud.";
+    }
+    return text;
+  }
+
+  let text =
+    '- No CTA link was provided. Use reply-based CTAs (e.g., "Reply to this email", "Let me know if you\'d like to chat"). Do NOT invent any URL.';
+  if (hasCall) {
+    text += "\n- For CALL steps: agree on a verbal next step only.";
+  }
+  return text;
+};
 
 const buildGenerationPrompt = (input: GeneratePromptTextInput): string => {
-  const defaultPattern = ["SMS", "EMAIL", "WHATSAPP", "CALL", "SMS", "EMAIL"];
-  const stepPattern = (input.stepTypesPattern || defaultPattern).join(", ");
-  const interval = input.intervalDays || 3;
-  const tone = input.toneStyle || "Professional but warm and conversational";
+  const pattern = input.stepTypesPattern as StepType[];
+  const stepPattern = pattern.join(", ");
+  const uniqueTypes = uniqueStepTypesInOrder(pattern);
+  const interval = input.intervalDays ?? 3;
+  const tone = input.toneStyle ?? "Professional but warm and conversational";
 
   const hasCtaLink = !!input.ctaLink;
   const hasCompanyName = !!input.companyName;
 
-  const ctaInstruction = hasCtaLink
-    ? `- Booking CTA: ${input.ctaLink}\n- Include this CTA link once in emails and in SMS messages.`
-    : `- No CTA link was provided. Use a generic call-to-action like "Reply to this email" or "Let me know if you'd like to chat". Do NOT invent or hallucinate any URL.`;
+  const ctaInstruction = buildCtaInstruction(
+    uniqueTypes,
+    hasCtaLink,
+    input.ctaLink
+  );
 
   const companyInstruction = hasCompanyName
     ? `Company Name: ${input.companyName}`
     : `Company Name: Not provided. Reference the sender by name only. Do NOT invent a company name.`;
 
-  const outputFormatCtaNote = hasCtaLink
-    ? `5. Include the CTA link once in the body.`
-    : `5. Use a reply-based CTA (e.g., "Reply to this email", "Let me know"). Do NOT include any URL.`;
-
-  const outputFormatSmsCtaNote = hasCtaLink
-    ? `- **2–4 short sentences max.** One clear CTA with the same link.`
-    : `- **2–4 short sentences max.** One clear reply-based CTA. No URL.`;
+  const typesList = uniqueTypes.join(", ");
+  const exampleTemplate = buildExampleTemplate(
+    stepPattern,
+    interval,
+    uniqueTypes,
+    hasCtaLink
+  );
+  const outputFormatRules = buildOutputFormatRulesList(uniqueTypes);
+  const generationSection5 = buildGenerationPromptSectionList(
+    uniqueTypes,
+    hasCtaLink
+  );
+  const styleTypesLabel = uniqueTypes.join(", ");
 
   return `You are an expert prompt engineer. Your task is to generate a PROMPT TEMPLATE (a meta-prompt) that will later be used to instruct an AI to write follow-up messages for leads.
 
@@ -209,13 +390,13 @@ CRITICAL RULES:
 2. The template MUST use these placeholder variables (double curly braces) — do NOT replace them with real values:
    ${AVAILABLE_VARIABLES.join(", ")}
 3. The template MUST follow the exact structural format shown in the example below.
-4. The OUTPUT FORMAT section is MANDATORY and must enforce:
-   - For EMAIL: Line 1 must be "SUBJECT: <subject>", Line 2 blank, then body
-   - For SMS: No subject line, 2-4 sentences max
-5. The template must include a SEQUENCE PLAN section with the step types and interval.
-6. The template must instruct AI to generate ONE message for the CURRENT STEP ONLY.
-7. Include STYLE REFERENCES section with example email and SMS tone (using {{lead.name}} variable).
-8. Do NOT invent or hallucinate any URL or company name that was not provided by the user.
+4. The OUTPUT FORMAT section is MANDATORY and must include ONLY these step types: ${typesList}.
+${outputFormatRules}
+5. Do NOT include OUTPUT FORMAT or STYLE REFERENCES for step types not in the pattern (${typesList}).
+6. The template must include a SEQUENCE PLAN section with the user's full stepTypes pattern and interval.
+7. The template must instruct AI to generate ONE message for the CURRENT STEP ONLY.
+8. Include STYLE REFERENCES with examples ONLY for: ${styleTypesLabel} (using {{lead.name}} and other variables).
+9. Do NOT invent or hallucinate any URL or company name that was not provided by the user.
 
 ---
 
@@ -242,28 +423,23 @@ ${input.additionalNotes ? `\nAdditional Notes:\n${input.additionalNotes}` : ""}
 
 ---
 
-EXAMPLE TEMPLATE (follow this structure exactly, but adapt content to the user's inputs above):
+EXAMPLE TEMPLATE (follow this structure; include ONLY the step types listed above):
 
-${EXAMPLE_TEMPLATE}
+${exampleTemplate}
 
 ---
 
 NOW generate a complete prompt template based on the user's inputs above. Follow the same section structure:
 1. Opening context (who the AI is writing for, scenario)
-2. SEQUENCE PLAN (with the user's stepTypes and intervalDays)
+2. SEQUENCE PLAN (StepTypes pattern: ${stepPattern}, IntervalDays: ${interval})
 3. GOALS (derived from the user's scenario and sequence goal)
 4. PERSONALIZATION & LINKS section must include:
    ${ctaInstruction}
    - Sign emails as: ${input.senderName}
    - Use {{variables}} for lead personalization
-5. OUTPUT FORMAT (STRICT — required for the system):
-   - EMAIL: Line 1 "SUBJECT: ...", Line 2 blank, body from Line 3
-     ${outputFormatCtaNote}
-   - SMS: No subject line
-     ${outputFormatSmsCtaNote}
-   - WHATSAPP: No subject line, 3-6 sentences, conversational tone, light formatting (*bold*, _italic_) allowed
-   - CALL: No subject line, generate concise call talking points (5-8 bullet points) for a sales follow-up phone call
-6. STYLE REFERENCES (example email, SMS, WhatsApp, and call script adapted to the user's scenario${!hasCtaLink ? " — no URLs in examples" : ""})
+5. OUTPUT FORMAT (STRICT) — include ONLY these channels, no others:
+${generationSection5}
+6. STYLE REFERENCES — include examples ONLY for: ${styleTypesLabel}${!hasCtaLink ? " (no URLs in examples)" : ""}
 
 Output ONLY the template text. No explanations, no markdown code fences.`;
 };
