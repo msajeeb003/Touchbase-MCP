@@ -546,7 +546,6 @@ const generatePromptText = async (
     interval
   );
 
-  console.log({promptText,fullStepPattern,interval});
   return { promptText };
 };
 
