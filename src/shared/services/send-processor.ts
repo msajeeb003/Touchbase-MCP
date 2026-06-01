@@ -27,7 +27,13 @@ const processStep = async (step: {
       company: string | null;
     };
   };
-}): Promise<{ success: boolean; log: string; async?: boolean }> => {
+}): Promise<{
+  success: boolean;
+  log: string;
+  async?: boolean;
+  externalMessageId?: string;
+  whatsappPending?: boolean;
+}> => {
   if (step.sequence.status !== "active") {
     return { success: false, log: "Failed: Sequence no longer active" };
   }
@@ -72,15 +78,27 @@ const processStep = async (step: {
         return { success: false, log: "Failed: Lead has no phone number" };
       }
 
-      await sendWhatsApp(
+      const waResult = await sendWhatsApp(
         step.sequence.userId,
         step.sequence.lead.phone,
         step.content
       );
 
+      console.log({waResult});
+
+      if (waResult.mode === "webhook") {
+        return {
+          success: true,
+          async: true,
+          whatsappPending: true,
+          externalMessageId: waResult.sid,
+          log: `WhatsApp queued at Twilio (sid: ${waResult.sid}) — awaiting delivery status`,
+        };
+      }
+
       return {
         success: true,
-        log: `WhatsApp sent to ${step.sequence.lead.phone}`,
+        log: `WhatsApp accepted by Twilio (sid: ${waResult.sid}, status: ${waResult.status}) — set PUBLIC_BASE_URL for delivery tracking`,
       };
     } else if (step.stepType === "CALL") {
       if (!step.sequence.lead.phone) {
@@ -115,7 +133,11 @@ const checkSequenceCompletion = async (sequenceId: string) => {
     where: {
       sequenceId,
       status: {
-        in: [SEQUENCE_STEP_STATUS.SCHEDULED, SEQUENCE_STEP_STATUS.CALLING],
+        in: [
+          SEQUENCE_STEP_STATUS.SCHEDULED,
+          SEQUENCE_STEP_STATUS.SENDING,
+          SEQUENCE_STEP_STATUS.CALLING,
+        ],
       },
     },
   });
@@ -206,8 +228,13 @@ const processDueSteps = async () => {
         await prisma.sequenceStep.update({
           where: { id: step.id },
           data: {
-            status: SEQUENCE_STEP_STATUS.CALLING,
+            status: result.whatsappPending
+              ? SEQUENCE_STEP_STATUS.SENDING
+              : SEQUENCE_STEP_STATUS.CALLING,
             sendLog: result.log,
+            ...(result.externalMessageId && {
+              externalMessageId: result.externalMessageId,
+            }),
           },
         });
         console.log(`[SendProcessor] ${result.log}`);

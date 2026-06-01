@@ -269,6 +269,7 @@ const transitionToDraft = async (
         status: {
           in: [
             SEQUENCE_STEP_STATUS.SCHEDULED,
+            SEQUENCE_STEP_STATUS.SENDING,
             SEQUENCE_STEP_STATUS.SKIPPED,
             SEQUENCE_STEP_STATUS.CALLING,
           ],
@@ -302,6 +303,7 @@ const transitionToCancelled = async (
             SEQUENCE_STEP_STATUS.PENDING,
             SEQUENCE_STEP_STATUS.DRAFT,
             SEQUENCE_STEP_STATUS.SCHEDULED,
+            SEQUENCE_STEP_STATUS.SENDING,
             SEQUENCE_STEP_STATUS.CALLING,
           ],
         },

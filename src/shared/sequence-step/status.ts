@@ -5,6 +5,7 @@ export const SEQUENCE_STEP_STATUS = {
   PENDING: "pending",
   DRAFT: "draft",
   SCHEDULED: "scheduled",
+  SENDING: "sending",
   CALLING: "calling",
   SENT: "sent",
   FAILED: "failed",

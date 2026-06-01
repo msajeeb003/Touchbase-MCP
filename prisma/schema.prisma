@@ -110,9 +110,10 @@ model SequenceStep {
   content     String?   @db.Text
   status      String    @default("pending")
   scheduledAt DateTime
-  sentAt      DateTime?
-  sendLog     String?   @db.Text
-  createdAt   DateTime  @default(now())
+  sentAt              DateTime?
+  sendLog             String?   @db.Text
+  externalMessageId   String?   @unique
+  createdAt           DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   callLogs    CallLog[]
 

@@ -13,6 +13,8 @@ const config = {
   },
   encryption_key: process.env.ENCRYPTION_KEY as string,
   batch_size: Number(process.env.BATCH_SIZE) || 20,
+  /** Public HTTPS base URL for Twilio StatusCallback (e.g. ngrok: https://abc.ngrok-free.app) */
+  public_base_url: process.env.PUBLIC_BASE_URL?.replace(/\/$/, "") || "",
 };
 
 export default config;

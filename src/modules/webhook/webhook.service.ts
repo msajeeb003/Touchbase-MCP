@@ -96,7 +96,11 @@ const checkSequenceCompletion = async (sequenceId: string) => {
     where: {
       sequenceId,
       status: {
-        in: [SEQUENCE_STEP_STATUS.SCHEDULED, SEQUENCE_STEP_STATUS.CALLING],
+        in: [
+          SEQUENCE_STEP_STATUS.SCHEDULED,
+          SEQUENCE_STEP_STATUS.SENDING,
+          SEQUENCE_STEP_STATUS.CALLING,
+        ],
       },
     },
   });
