@@ -83,7 +83,7 @@ const processCallEnded = async (call: RetellCallPayload) => {
     },
   });
 
-  console.log(`[Webhook] Step ${stepId}: ${logMessage}`);
+  // console.log(`[Webhook] Step ${stepId}: ${logMessage}`);
 
   const sequenceId = call.metadata?.sequenceId;
   if (sequenceId) {
@@ -120,7 +120,7 @@ const checkSequenceCompletion = async (sequenceId: string) => {
       await syncLeadStatusFromActiveSequences(seq.leadId);
     }
 
-    console.log(`[Webhook] Sequence ${sequenceId} completed`);
+    // console.log(`[Webhook] Sequence ${sequenceId} completed`);
   }
 };
 

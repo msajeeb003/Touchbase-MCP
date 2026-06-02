@@ -84,8 +84,6 @@ const processStep = async (step: {
         step.content
       );
 
-      console.log({waResult});
-
       if (waResult.mode === "webhook") {
         return {
           success: true,
@@ -157,7 +155,7 @@ const checkSequenceCompletion = async (sequenceId: string) => {
       await syncLeadStatusFromActiveSequences(seq.leadId);
     }
 
-    console.log(`[SendProcessor] Sequence ${sequenceId} completed`);
+    // console.log(`[SendProcessor] Sequence ${sequenceId} completed`);
   }
 };
 
@@ -216,9 +214,9 @@ const processDueSteps = async () => {
 
       // if the sequence is not active, skip the step
       if (freshSequence?.status !== "active") {
-        console.log(
-          `[SendProcessor] Step ${step.id} skipped — sequence no longer active`
-        );
+        // console.log(
+        //   `[SendProcessor] Step ${step.id} skipped — sequence no longer active`
+        // );
         continue;
       }
 

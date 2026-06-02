@@ -135,7 +135,6 @@ export const sendWhatsApp = async (
     body: params,
   });
 
-  console.log({"sendWhatsApp response": response});
   const raw = await response.text();
 
   if (!response.ok) {

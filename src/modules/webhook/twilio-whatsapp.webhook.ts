@@ -34,14 +34,13 @@ const checkSequenceCompletion = async (sequenceId: string) => {
       await syncLeadStatusFromActiveSequences(seq.leadId);
     }
 
-    console.log(`[Twilio Webhook] Sequence ${sequenceId} completed`);
+    // console.log(`[Twilio Webhook] Sequence ${sequenceId} completed`);
   }
 };
 
 export const processTwilioWhatsAppStatus = async (
   body: Record<string, string>
 ): Promise<void> => {
-  console.log({body});
   const messageSid = body.MessageSid;
   const messageStatus = (body.MessageStatus || "").toLowerCase();
   const errorCode = Number.parseInt(body.ErrorCode || "0", 10) || 0;
@@ -66,9 +65,7 @@ export const processTwilioWhatsAppStatus = async (
     step.status === SEQUENCE_STEP_STATUS.SENT ||
     step.status === SEQUENCE_STEP_STATUS.FAILED
   ) {
-    console.log(
-      `[Twilio Webhook] Step ${step.id} already final (${step.status}), ignoring ${messageStatus}`
-    );
+    
     return;
   }
 
@@ -86,7 +83,6 @@ export const processTwilioWhatsAppStatus = async (
       },
     });
 
-    console.log(`[Twilio Webhook] Step ${step.id}: ${log}`);
     await checkSequenceCompletion(step.sequenceId);
     return;
   }
@@ -96,7 +92,7 @@ export const processTwilioWhatsAppStatus = async (
       messageStatus === "read"
         ? "Read on WhatsApp"
         : messageStatus === "delivered"
-          ? "Delivered on WhatsApp"
+          ? `Delivered on WhatsApp`
           : "Sent on WhatsApp";
 
     await prisma.sequenceStep.update({
@@ -108,7 +104,7 @@ export const processTwilioWhatsAppStatus = async (
       },
     });
 
-    console.log(`[Twilio Webhook] Step ${step.id}: ${log}`);
+    // console.log(`[Twilio Webhook] Step ${step.id}: ${log}`);
     await checkSequenceCompletion(step.sequenceId);
     return;
   }
@@ -120,7 +116,7 @@ export const processTwilioWhatsAppStatus = async (
     },
   });
 
-  console.log(
-    `[Twilio Webhook] Step ${step.id}: intermediate status ${messageStatus}`
-  );
+  // console.log(
+  //   `[Twilio Webhook] Step ${step.id}: intermediate status ${messageStatus}`
+  // );
 };
