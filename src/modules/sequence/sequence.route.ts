@@ -6,6 +6,7 @@ import {
   createSequenceSchema,
   updateSequenceSchema,
 } from "./sequence.validation";
+import { generateSaveSchema } from "./sequence.validation";
 import { SequenceStepRoutes } from "../sequence-step/sequence-step.route";
 
 const router = Router();
@@ -15,6 +16,13 @@ router.post(
   auth,
   validateRequest(createSequenceSchema),
   SequenceController.createSequence
+);
+
+router.post(
+  "/generate-save",
+  auth,
+  validateRequest(generateSaveSchema),
+  SequenceController.generateAndSave
 );
 
 router.get("/", auth, SequenceController.getSequences);
@@ -30,7 +38,9 @@ router.patch(
 
 router.delete("/:id", auth, SequenceController.deleteSequence);
 
-router.post("/:id/generate-steps", auth, SequenceController.generateSteps);
+router.get( "/:id/logs",         auth, SequenceController.getActivity);
+router.post("/:id/generate-steps",   auth, SequenceController.generateSteps);
+router.post("/:id/regenerate-steps", auth, SequenceController.regenerateSteps);
 
 router.use("/:sequenceId/steps", SequenceStepRoutes);
 

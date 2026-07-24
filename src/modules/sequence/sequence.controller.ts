@@ -101,6 +101,53 @@ const generateSteps = catchAsync(
   }
 );
 
+const regenerateStepsHandler = catchAsync(
+  async (req: AuthRequest, res: Response) => {
+    const result = await SequenceService.regenerateSteps(req.user!.id, req.params.id as string);
+
+    sendResponse(res, {
+      statusCode: 200,
+      success:    true,
+      message:    "Steps regenerated successfully",
+      data:       result,
+    });
+  }
+);
+
+const generateAndSaveHandler = catchAsync(
+  async (req: AuthRequest, res: Response) => {
+    const result = await SequenceService.generateAndSave(req.user!.id, req.body);
+
+    sendResponse(res, {
+      statusCode: 201,
+      success: true,
+      message: "Sequence generated and saved successfully",
+      data: result,
+    });
+  }
+);
+
+const getActivityHandler = catchAsync(
+  async (req: AuthRequest, res: Response) => {
+    const page  = Math.max(1, parseInt((req.query.page  as string) || "1",  10));
+    const limit = Math.min(100, Math.max(1, parseInt((req.query.limit as string) || "20", 10)));
+
+    const result = await SequenceService.getActivity(
+      req.user!.id,
+      req.params.id as string,
+      page,
+      limit
+    );
+
+    sendResponse(res, {
+      statusCode: 200,
+      success:    true,
+      message:    "Activity fetched successfully",
+      data:       result,
+    });
+  }
+);
+
 export const SequenceController = {
   createSequence,
   getSequences,
@@ -108,4 +155,7 @@ export const SequenceController = {
   updateSequence,
   deleteSequence,
   generateSteps,
+  generateAndSave:   generateAndSaveHandler,
+  regenerateSteps:   regenerateStepsHandler,
+  getActivity:       getActivityHandler,
 };

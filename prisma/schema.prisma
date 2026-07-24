@@ -91,9 +91,20 @@ model Sequence {
   name             String
   totalSteps       Int
   status           String          @default("draft")
+
+  // Wizard (generate-save) fields — null on sequences created via the classic flow
+  situationType    String?
+  situationPrompt  String?         @db.Text
+  goal             String?
+  tone             String?
+  intensity        String?
+  cadence          String?
+  channels         Json?
+
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
   steps            SequenceStep[]
+  activities       SequenceActivity[]
 
   @@index([userId])
   @@index([leadId])
@@ -117,9 +128,27 @@ model SequenceStep {
   updatedAt   DateTime  @updatedAt
   callLogs    CallLog[]
 
+  activities  SequenceActivity[]
+
   @@unique([sequenceId, stepOrder])
   @@index([sequenceId])
   @@map("sequence_steps")
+}
+
+model SequenceActivity {
+  id         String        @id @default(uuid())
+  sequenceId String
+  sequence   Sequence      @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  stepId     String?
+  step       SequenceStep? @relation(fields: [stepId], references: [id], onDelete: SetNull)
+  eventType  String
+  actor      String        @default("system")
+  meta       Json          @default("{}")
+  createdAt  DateTime      @default(now())
+
+  @@index([sequenceId])
+  @@index([sequenceId, createdAt])
+  @@map("sequence_activities")
 }
 
 model CallLog {

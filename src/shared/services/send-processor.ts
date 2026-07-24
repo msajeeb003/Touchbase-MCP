@@ -6,6 +6,7 @@ import { sendEmail } from "./email.service";
 import { sendSms } from "./sms.service";
 import { sendWhatsApp } from "./whatsapp.service";
 import { triggerCall } from "./calling.service";
+import { logActivity } from "./activity-logger";
 import config from "../../config";
 
 const BATCH_SIZE = config.batch_size;
@@ -235,6 +236,13 @@ const processDueSteps = async () => {
             }),
           },
         });
+        logActivity({
+          sequenceId: step.sequenceId,
+          stepId:     step.id,
+          eventType:  "step_sending",
+          actor:      "system",
+          meta:       { stepOrder: step.stepOrder, stepType: step.stepType, externalMessageId: result.externalMessageId ?? null },
+        });
         console.log(`[SendProcessor] ${result.log}`);
       } else if (result.success) {
         await prisma.sequenceStep.update({
@@ -245,6 +253,13 @@ const processDueSteps = async () => {
             sendLog: result.log,
           },
         });
+        logActivity({
+          sequenceId: step.sequenceId,
+          stepId:     step.id,
+          eventType:  "step_sent",
+          actor:      "system",
+          meta:       { stepOrder: step.stepOrder, stepType: step.stepType, sentAt: new Date().toISOString(), channel: step.stepType.toLowerCase() },
+        });
         console.log(`[SendProcessor] ${result.log}`);
       } else {
         await prisma.sequenceStep.update({
@@ -253,6 +268,13 @@ const processDueSteps = async () => {
             status: SEQUENCE_STEP_STATUS.FAILED,
             sendLog: result.log,
           },
+        });
+        logActivity({
+          sequenceId: step.sequenceId,
+          stepId:     step.id,
+          eventType:  "step_failed",
+          actor:      "system",
+          meta:       { stepOrder: step.stepOrder, stepType: step.stepType, reason: result.log },
         });
         console.log(`[SendProcessor] Step ${step.id}: ${result.log}`);
       }
