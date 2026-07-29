@@ -1,6 +1,7 @@
 import prisma from "../../shared/prisma";
 import { SEQUENCE_STEP_STATUS } from "../../shared/sequence-step";
 import { syncLeadStatusFromActiveSequences } from "../lead/lead.service";
+import { logActivity } from "../../shared/services/activity-logger";
 
 const FINAL_SUCCESS = new Set(["sent", "delivered", "read"]);
 const FINAL_FAILURE = new Set(["failed", "undelivered"]);
@@ -53,7 +54,7 @@ export const processTwilioWhatsAppStatus = async (
 
   const step = await prisma.sequenceStep.findUnique({
     where: { externalMessageId: messageSid },
-    select: { id: true, status: true, sequenceId: true },
+    select: { id: true, status: true, sequenceId: true, stepOrder: true, stepType: true },
   });
 
   if (!step) {
@@ -102,6 +103,14 @@ export const processTwilioWhatsAppStatus = async (
         sentAt: new Date(),
         sendLog: log,
       },
+    });
+
+    logActivity({
+      sequenceId: step.sequenceId,
+      stepId:     step.id,
+      eventType:  "step_delivered",
+      actor:      "system",
+      meta:       { stepOrder: step.stepOrder, stepType: step.stepType, externalMessageId: messageSid, deliveryStatus: messageStatus },
     });
 
     // console.log(`[Twilio Webhook] Step ${step.id}: ${log}`);
