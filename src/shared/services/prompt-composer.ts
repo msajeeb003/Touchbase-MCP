@@ -1,42 +1,8 @@
 import type {
-  SituationType,
   GoalType,
   ToneType,
   IntensityType,
 } from "../../modules/sequence/sequence.validation";
-
-const SITUATION_STEP1_CONTEXT: Record<SituationType, string> = {
-  "No-show":
-    "The lead missed a scheduled meeting without prior notice. Acknowledge this directly and empathetically — do not ignore the no-show, but do not be confrontational.",
-  "Post-call follow-up":
-    "You recently had a successful call or meeting with this lead. Reference the conversation warmly.",
-  "Demo follow-up":
-    "You just walked the lead through a product demo. Reference what was shown and their expressed interest.",
-  "Proposal follow-up":
-    "A proposal has been sent and is awaiting the lead's decision. Reference the proposal directly.",
-  "Cold outreach":
-    "This is your first contact with this lead. Introduce yourself and the reason for reaching out clearly.",
-  "Re-engagement":
-    "This lead went cold after earlier conversations. Acknowledge the gap in communication naturally — do not pretend it did not happen.",
-  "Custom": "",
-};
-
-const SITUATION_FOLLOWUP_CONTEXT: Record<SituationType, string> = {
-  "No-show":
-    "You have already reached out about the missed meeting. Reference your prior message naturally without dwelling on the no-show again.",
-  "Post-call follow-up":
-    "You have already followed up after the call. Reference your previous message and keep building on the conversation.",
-  "Demo follow-up":
-    "You have already reached out after the demo. Continue the conversation naturally — reference your prior outreach.",
-  "Proposal follow-up":
-    "You have already followed up on the proposal. Reference your previous messages and keep the pressure appropriate to the step.",
-  "Cold outreach":
-    "You have already made initial contact. This is a follow-up — reference your previous message, do not re-introduce yourself from scratch.",
-  "Re-engagement":
-    "You have already reached out to re-engage. Continue naturally — reference your prior message.",
-  "Custom":
-    "You have already reached out previously. Reference your prior message naturally — do not repeat your initial introduction.",
-};
 
 const GOAL_CONTEXT: Record<GoalType, string> = {
   "Book another call":  "Your goal is to get them on a call.",
@@ -134,7 +100,8 @@ const formatPreviousSteps = (
 
 const resolveLeadVariables = (
   text: string,
-  lead: WizardStepPromptParams["lead"]
+  lead: WizardStepPromptParams["lead"],
+  sequenceName?: string
 ): string =>
   text
     .replace(/\{\{lead\.name\}\}/gi,          lead.name || "")
@@ -143,10 +110,11 @@ const resolveLeadVariables = (
     .replace(/\{\{lead\.company\}\}/gi,       lead.company || "")
     .replace(/\{\{lead\.location\}\}/gi,      lead.location || "(not provided)")
     .replace(/\{\{lead\.followUpStage\}\}/gi, lead.followUpStage || "")
-    .replace(/\{\{lead\.notes\}\}/gi,         lead.notes || "");
+    .replace(/\{\{lead\.notes\}\}/gi,         lead.notes || "")
+    .replace(/\{\{sequence\.name\}\}/gi,      sequenceName || "");
 
 export interface WizardStepPromptParams {
-  situation:   { type: SituationType; customPrompt?: string };
+  promptText:  string;
   goal:        GoalType;
   tone:        ToneType;
   intensity:   IntensityType;
@@ -167,25 +135,12 @@ export interface WizardStepPromptParams {
     notes?:         string | null;
   };
   transcript: string | null;
+  sequenceName?: string;
 }
 
 export const buildWizardStepPrompt = (params: WizardStepPromptParams): string => {
-  const { situation, goal, tone, intensity, stepContext, previousSteps, lead, transcript } = params;
+  const { promptText, goal, tone, intensity, stepContext, previousSteps, lead, transcript, sequenceName } = params;
   const { stepOrder, totalSteps, stepType } = stepContext;
-
-  const isFirstStep = stepOrder === 1;
-
-  // Situation context — step 1 uses opening context, later steps use follow-up context
-  let situationText: string;
-  if (situation.type === "Custom") {
-    situationText = isFirstStep
-      ? (situation.customPrompt ?? "").trim()
-      : SITUATION_FOLLOWUP_CONTEXT["Custom"];
-  } else {
-    situationText = isFirstStep
-      ? SITUATION_STEP1_CONTEXT[situation.type]
-      : SITUATION_FOLLOWUP_CONTEXT[situation.type];
-  }
 
   const positionHint = getIntensityPositionHint(intensity, stepOrder, totalSteps);
 
@@ -194,8 +149,8 @@ export const buildWizardStepPrompt = (params: WizardStepPromptParams): string =>
   const blocks = [
     header,
     "",
-    "[SITUATION]",
-    situationText,
+    "[PROMPT TEMPLATE]",
+    promptText.trim(),
     "",
     "[GOAL]",
     GOAL_CONTEXT[goal],
@@ -212,7 +167,7 @@ export const buildWizardStepPrompt = (params: WizardStepPromptParams): string =>
     getStepTypeInstruction(stepType),
   ];
 
-  let prompt = resolveLeadVariables(blocks.join("\n"), lead);
+  let prompt = resolveLeadVariables(blocks.join("\n"), lead, sequenceName);
 
   const prevText = formatPreviousSteps(previousSteps);
   if (prevText) prompt += `\n${prevText}`;

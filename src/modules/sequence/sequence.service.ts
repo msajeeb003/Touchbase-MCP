@@ -756,7 +756,14 @@ const CHANNEL_TO_STEP_TYPE: Record<string, string> = {
 
 type AiConfig        = { provider: AIProvider; apiKey: string; model: string | undefined };
 type StepRow         = { id: string; stepOrder: number; stepType: string };
-type WizardContext   = { situation: { type: string; customPrompt?: string | null }; goal: string; tone: string; intensity: string; totalSteps: number };
+type WizardContext   = {
+  promptText: string;
+  goal: string;
+  tone: string;
+  intensity: string;
+  totalSteps: number;
+  sequenceName?: string;
+};
 type GenerationResult = { stepOrder: number; status: string; error?: string };
 
 const runGenerationLoop = async (
@@ -793,10 +800,7 @@ const runGenerationLoop = async (
       });
 
       const prompt = buildWizardStepPrompt({
-        situation: {
-          type:         wizard.situation.type as Parameters<typeof buildWizardStepPrompt>[0]["situation"]["type"],
-          customPrompt: wizard.situation.customPrompt ?? undefined,
-        },
+        promptText: wizard.promptText,
         goal:      wizard.goal      as Parameters<typeof buildWizardStepPrompt>[0]["goal"],
         tone:      wizard.tone      as Parameters<typeof buildWizardStepPrompt>[0]["tone"],
         intensity: wizard.intensity as Parameters<typeof buildWizardStepPrompt>[0]["intensity"],
@@ -804,6 +808,7 @@ const runGenerationLoop = async (
         previousSteps,
         lead,
         transcript: transcriptText,
+        sequenceName: wizard.sequenceName,
       });
 
       const aiResponse = await generateContent(
@@ -829,19 +834,23 @@ const runGenerationLoop = async (
 };
 
 const generateAndSave = async (userId: string, payload: GenerateSaveInput) => {
-  const { sequenceId, leadId, situation, goal, preferences } = payload;
+  const { sequenceId, leadId, promptTemplateId, goal, preferences } = payload;
   const { tone, intensity, cadence, channels } = preferences;
 
   // --- RESUME PATH ---
   if (sequenceId) {
     const sequence = await prisma.sequence.findFirst({
       where:   { id: sequenceId, userId },
-      include: { lead: true, steps: { orderBy: { stepOrder: "asc" } }, promptTemplate: { select: { id: true, name: true, followUpStage: true } } },
+      include: {
+        lead: true,
+        steps: { orderBy: { stepOrder: "asc" } },
+        promptTemplate: { select: { id: true, name: true, followUpStage: true, promptText: true } },
+      },
     });
 
     if (!sequence) throw new AppError(404, "Sequence not found");
 
-    if (!sequence.situationType || !sequence.goal || !sequence.tone || !sequence.intensity) {
+    if (!sequence.promptTemplateId || !sequence.promptTemplate || !sequence.goal || !sequence.tone || !sequence.intensity) {
       throw new AppError(400, "This sequence was not created via the wizard and cannot use resume generation.");
     }
 
@@ -891,7 +900,14 @@ const generateAndSave = async (userId: string, payload: GenerateSaveInput) => {
 
     const generationResults = await runGenerationLoop(
       sequence.id, sequence.leadId, userId, stepsToGenerate,
-      { situation: { type: sequence.situationType, customPrompt: sequence.situationPrompt }, goal: sequence.goal, tone: sequence.tone, intensity: sequence.intensity, totalSteps: sequence.totalSteps },
+      {
+        promptText: sequence.promptTemplate.promptText,
+        goal: sequence.goal,
+        tone: sequence.tone,
+        intensity: sequence.intensity,
+        totalSteps: sequence.totalSteps,
+        sequenceName: sequence.name,
+      },
       { provider: aiSettings.aiProvider as AIProvider, apiKey: aiApiKey, model: aiSettings.aiModel ?? undefined }
     );
 
@@ -904,7 +920,15 @@ const generateAndSave = async (userId: string, payload: GenerateSaveInput) => {
       sequenceId: sequence.id,
       eventType:  "sequence_generated",
       actor:      "user",
-      meta:       { situation: sequence.situationType, goal: sequence.goal, tone: sequence.tone, intensity: sequence.intensity, cadence: sequence.cadence, totalSteps: sequence.totalSteps, stepsGenerated: generationResults.filter((r) => r.status === "generated").length },
+      meta:       {
+        promptTemplateId: sequence.promptTemplateId,
+        goal: sequence.goal,
+        tone: sequence.tone,
+        intensity: sequence.intensity,
+        cadence: sequence.cadence,
+        totalSteps: sequence.totalSteps,
+        stepsGenerated: generationResults.filter((r) => r.status === "generated").length,
+      },
     });
 
     return { sequence: updatedSequence, generationResults };
@@ -913,6 +937,11 @@ const generateAndSave = async (userId: string, payload: GenerateSaveInput) => {
   // --- CREATE PATH ---
   const lead = await prisma.lead.findFirst({ where: { id: leadId, userId } });
   if (!lead) throw new AppError(404, "Lead not found");
+
+  const promptTemplate = await prisma.promptTemplate.findFirst({
+    where: { id: promptTemplateId, userId },
+  });
+  if (!promptTemplate) throw new AppError(404, "Prompt template not found");
 
   const activeSeq = await prisma.sequence.findFirst({ where: { leadId, userId, status: SEQUENCE_STATUS.ACTIVE } });
   if (activeSeq) throw new AppError(409, "This lead already has an active sequence. Pause or cancel it first.");
@@ -937,14 +966,30 @@ const generateAndSave = async (userId: string, payload: GenerateSaveInput) => {
     return { order: i + 1, stepType: stepTypes[i], scheduledAt };
   });
 
+  const sequenceName = `${promptTemplate.name} — ${goal}`;
+
   const sequence = await prisma.$transaction(async (tx) => {
     const created = await tx.sequence.create({
       data: {
-        userId, leadId, promptTemplateId: null,
-        name: `${situation.type} — ${goal}`, totalSteps,
-        situationType: situation.type, situationPrompt: situation.customPrompt ?? null,
-        goal, tone, intensity, cadence: cadenceRaw, channels,
-        steps: { createMany: { data: stepSchedules.map((s) => ({ stepOrder: s.order, stepType: s.stepType, scheduledAt: s.scheduledAt })) } },
+        userId,
+        leadId,
+        promptTemplateId: promptTemplate.id,
+        name: sequenceName,
+        totalSteps,
+        goal,
+        tone,
+        intensity,
+        cadence: cadenceRaw,
+        channels,
+        steps: {
+          createMany: {
+            data: stepSchedules.map((s) => ({
+              stepOrder: s.order,
+              stepType: s.stepType,
+              scheduledAt: s.scheduledAt,
+            })),
+          },
+        },
       },
       include: { lead: true, steps: { orderBy: { stepOrder: "asc" } } },
     });
@@ -954,7 +999,14 @@ const generateAndSave = async (userId: string, payload: GenerateSaveInput) => {
 
   const generationResults = await runGenerationLoop(
     sequence.id, leadId, userId, sequence.steps,
-    { situation, goal, tone, intensity, totalSteps },
+    {
+      promptText: promptTemplate.promptText,
+      goal,
+      tone,
+      intensity,
+      totalSteps,
+      sequenceName,
+    },
     { provider: aiSettings.aiProvider as AIProvider, apiKey: aiApiKey, model: aiSettings.aiModel ?? undefined }
   );
 
@@ -967,7 +1019,15 @@ const generateAndSave = async (userId: string, payload: GenerateSaveInput) => {
     sequenceId: sequence.id,
     eventType:  "sequence_generated",
     actor:      "user",
-    meta:       { situation: situation.type, goal, tone, intensity, cadence: cadenceRaw, totalSteps, stepsGenerated: generationResults.filter((r) => r.status === "generated").length },
+    meta:       {
+      promptTemplateId: promptTemplate.id,
+      goal,
+      tone,
+      intensity,
+      cadence: cadenceRaw,
+      totalSteps,
+      stepsGenerated: generationResults.filter((r) => r.status === "generated").length,
+    },
   });
 
   return { sequence: updatedSequence, generationResults };
@@ -976,12 +1036,15 @@ const generateAndSave = async (userId: string, payload: GenerateSaveInput) => {
 const regenerateSteps = async (userId: string, sequenceId: string) => {
   const sequence = await prisma.sequence.findFirst({
     where:   { id: sequenceId, userId },
-    include: { steps: { orderBy: { stepOrder: "asc" } } },
+    include: {
+      steps: { orderBy: { stepOrder: "asc" } },
+      promptTemplate: { select: { id: true, name: true, promptText: true } },
+    },
   });
 
   if (!sequence) throw new AppError(404, "Sequence not found");
 
-  if (!sequence.situationType || !sequence.goal || !sequence.tone || !sequence.intensity) {
+  if (!sequence.promptTemplateId || !sequence.promptTemplate || !sequence.goal || !sequence.tone || !sequence.intensity) {
     throw new AppError(400, "This sequence was not created via the wizard and cannot use regenerate-steps.");
   }
 
@@ -1006,7 +1069,14 @@ const regenerateSteps = async (userId: string, sequenceId: string) => {
 
   const generationResults = await runGenerationLoop(
     sequence.id, sequence.leadId, userId, freshSteps,
-    { situation: { type: sequence.situationType, customPrompt: sequence.situationPrompt }, goal: sequence.goal, tone: sequence.tone, intensity: sequence.intensity, totalSteps: sequence.totalSteps },
+    {
+      promptText: sequence.promptTemplate.promptText,
+      goal: sequence.goal,
+      tone: sequence.tone,
+      intensity: sequence.intensity,
+      totalSteps: sequence.totalSteps,
+      sequenceName: sequence.name,
+    },
     { provider: aiSettings.aiProvider as AIProvider, apiKey: aiApiKey, model: aiSettings.aiModel ?? undefined }
   );
 

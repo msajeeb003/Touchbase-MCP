@@ -38,16 +38,6 @@ export type UpdateSequenceInput = z.infer<typeof updateSequenceSchema>["body"];
 
 // --- Wizard (generate-save) ---
 
-export const SITUATION_TYPES = [
-  "No-show",
-  "Post-call follow-up",
-  "Demo follow-up",
-  "Proposal follow-up",
-  "Cold outreach",
-  "Re-engagement",
-  "Custom",
-] as const;
-
 export const GOAL_TYPES = [
   "Book another call",
   "Get a reply",
@@ -68,7 +58,6 @@ export const INTENSITY_TYPES = ["Light", "Standard", "Aggressive"] as const;
 
 export const CHANNEL_TYPES = ["email", "sms", "whatsapp", "aicall"] as const;
 
-export type SituationType = (typeof SITUATION_TYPES)[number];
 export type GoalType      = (typeof GOAL_TYPES)[number];
 export type ToneType      = (typeof TONE_TYPES)[number];
 export type IntensityType = (typeof INTENSITY_TYPES)[number];
@@ -83,46 +72,33 @@ const cadenceSchema = z
   });
 
 export const generateSaveSchema = z.object({
-  body: z
-    .object({
-      sequenceId: z.string().uuid("Invalid Sequence ID").optional(),
-      leadId: z.string({ required_error: "Lead ID is required" }).uuid("Invalid Lead ID"),
-      situation: z.object({
-        type: z.enum(SITUATION_TYPES, {
-          message: `Situation type must be one of: ${SITUATION_TYPES.join(", ")}`,
-        }),
-        customPrompt: z.string().optional(),
-      }),
-      goal: z.enum(GOAL_TYPES, {
-        message: `Goal must be one of: ${GOAL_TYPES.join(", ")}`,
-      }),
-      preferences: z.object({
-        tone: z.enum(TONE_TYPES, {
-          message: `Tone must be one of: ${TONE_TYPES.join(", ")}`,
-        }),
-        intensity: z.enum(INTENSITY_TYPES, {
-          message: `Intensity must be one of: ${INTENSITY_TYPES.join(", ")}`,
-        }),
-        cadence: cadenceSchema,
-        channels: z
-          .array(
-            z.enum(CHANNEL_TYPES, {
-              message: `Each channel must be one of: ${CHANNEL_TYPES.join(", ")}`,
-            })
-          )
-          .min(1, "At least one channel is required")
-          .max(4, "Maximum 4 channels"),
-      }),
-    })
-    .superRefine((data, ctx) => {
-      if (data.situation.type === "Custom" && !data.situation.customPrompt?.trim()) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["situation", "customPrompt"],
-          message: "customPrompt is required when situation type is 'Custom'",
-        });
-      }
+  body: z.object({
+    sequenceId: z.string().uuid("Invalid Sequence ID").optional(),
+    leadId: z.string({ required_error: "Lead ID is required" }).uuid("Invalid Lead ID"),
+    promptTemplateId: z
+      .string({ required_error: "Prompt Template ID is required" })
+      .uuid("Invalid Prompt Template ID"),
+    goal: z.enum(GOAL_TYPES, {
+      message: `Goal must be one of: ${GOAL_TYPES.join(", ")}`,
     }),
+    preferences: z.object({
+      tone: z.enum(TONE_TYPES, {
+        message: `Tone must be one of: ${TONE_TYPES.join(", ")}`,
+      }),
+      intensity: z.enum(INTENSITY_TYPES, {
+        message: `Intensity must be one of: ${INTENSITY_TYPES.join(", ")}`,
+      }),
+      cadence: cadenceSchema,
+      channels: z
+        .array(
+          z.enum(CHANNEL_TYPES, {
+            message: `Each channel must be one of: ${CHANNEL_TYPES.join(", ")}`,
+          })
+        )
+        .min(1, "At least one channel is required")
+        .max(4, "Maximum 4 channels"),
+    }),
+  }),
 });
 
 export type GenerateSaveInput = z.infer<typeof generateSaveSchema>["body"];
