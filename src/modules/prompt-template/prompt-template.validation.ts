@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { STEP_TYPE_LIST } from "../../shared/constants";
 
 export const createPromptTemplateSchema = z.object({
   body: z.object({
@@ -25,8 +24,6 @@ export const updatePromptTemplateSchema = z.object({
   }),
 });
 
-const stepTypeItem = z.enum(STEP_TYPE_LIST as [string, ...string[]]);
-
 export const generatePromptTextSchema = z.object({
   body: z.object({
     followUpScenario: z
@@ -51,12 +48,6 @@ export const generatePromptTextSchema = z.object({
       .min(1, "Company name cannot be empty")
       .max(100)
       .optional(),
-    stepTypesPattern: z
-      .array(stepTypeItem)
-      .min(1, "At least one step type is required")
-      .max(20),
-    intervalDays: z.number().int().min(1).max(90).optional(),
-    toneStyle: z.string().max(500).optional(),
     additionalNotes: z.string().max(2000).optional(),
   }),
 });

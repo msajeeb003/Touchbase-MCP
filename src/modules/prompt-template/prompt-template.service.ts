@@ -7,11 +7,7 @@ import {
 } from "./prompt-template.validation";
 import { SettingsService } from "../settings/settings.service";
 import { generateContent } from "../../shared/services/ai.service";
-import {
-  type AIProvider,
-  type StepType,
-  STEP_TYPE_LIST,
-} from "../../shared/constants";
+import { type AIProvider, type StepType, STEP_TYPE_LIST } from "../../shared/constants";
 
 const createTemplate = async (
   userId: string,
@@ -98,65 +94,7 @@ const AVAILABLE_VARIABLES = [
   "{{sequence.name}}",
 ];
 
-const LINK_STEP_TYPES: StepType[] = ["EMAIL", "SMS", "WHATSAPP"];
-
-/** Full cycle as entered (normalized case, keeps duplicates and order). */
-const formatFullStepPattern = (pattern: StepType[]): string =>
-  pattern.map((t) => String(t).toUpperCase().trim()).join(", ");
-
-/** Unique channels in first-seen order — for OUTPUT FORMAT / STYLE only. */
-const uniqueChannelsInOrder = (pattern: StepType[]): StepType[] => {
-  const seen = new Set<StepType>();
-  const result: StepType[] = [];
-  for (const t of pattern) {
-    const normalized = String(t).toUpperCase().trim() as StepType;
-    if (!STEP_TYPE_LIST.includes(normalized) || seen.has(normalized)) continue;
-    seen.add(normalized);
-    result.push(normalized);
-  }
-  return result;
-};
-
-const buildCanonicalSequencePlanSection = (
-  fullStepPattern: string,
-  interval: number
-): string => `## SEQUENCE PLAN (for scheduling — read carefully)
-
-- StepTypes pattern: ${fullStepPattern} (repeat cyclically to match total step count when a sequence is generated).
-- IntervalDays: ${interval} (days between consecutive steps).
-
-(The app may also pass exact step type and order in "--- STEP CONTEXT ---". Always obey that block for the current message.)`;
-
-/** Overwrite AI-written SEQUENCE PLAN so the step pattern matches user input exactly. */
-const injectSequencePlanSection = (
-  template: string,
-  fullStepPattern: string,
-  interval: number
-): string => {
-  const canonical = buildCanonicalSequencePlanSection(
-    fullStepPattern,
-    interval
-  );
-
-  const sectionRegex =
-    /## SEQUENCE PLAN[\s\S]*?(?=\n---\s*\n|\n## [A-Z])/m;
-
-  if (sectionRegex.test(template)) {
-    return template.replace(sectionRegex, canonical);
-  }
-
-  const firstSectionBreak = template.indexOf("\n---\n");
-  if (firstSectionBreak !== -1) {
-    return (
-      template.slice(0, firstSectionBreak) +
-      "\n\n" +
-      canonical +
-      template.slice(firstSectionBreak)
-    );
-  }
-
-  return `${template}\n\n${canonical}`;
-};
+const ALL_CHANNELS = STEP_TYPE_LIST as StepType[];
 
 const STEP_OUTPUT_FORMAT: Record<
   StepType,
@@ -248,48 +186,44 @@ Hi {{lead.name}}! [Friendly opener]. [Short value line].${cta}`;
 - Offer next step (meeting, PRD session, demo)
 - Handle objection: timing / budget
 - Close: agree on a concrete follow-up action`,
-
 };
 
-const buildOutputFormatSection = (
-  types: StepType[],
-  hasCtaLink: boolean
-): string =>
-  types
-    .map((t) => STEP_OUTPUT_FORMAT[t]({ hasCtaLink }))
-    .join("\n\n");
+const buildOutputFormatSection = (hasCtaLink: boolean): string =>
+  ALL_CHANNELS.map((t) => STEP_OUTPUT_FORMAT[t]({ hasCtaLink })).join("\n\n");
 
-const buildStyleReferencesSection = (
-  types: StepType[],
-  hasCtaLink: boolean
-): string =>
-  types
-    .map((t) => STEP_STYLE_REFERENCE[t]({ hasCtaLink }))
-    .join("\n\n");
+const buildStyleReferencesSection = (hasCtaLink: boolean): string =>
+  ALL_CHANNELS.map((t) => STEP_STYLE_REFERENCE[t]({ hasCtaLink })).join("\n\n");
 
-const buildExampleTemplate = (
-  fullStepPattern: string,
-  interval: number,
-  channels: StepType[],
-  hasCtaLink: boolean
-): string => {
-  const channelsLabel = channels.join(", ");
-  const outputSection = buildOutputFormatSection(channels, hasCtaLink);
-  const styleSection = buildStyleReferencesSection(channels, hasCtaLink);
-  const sequencePlan = buildCanonicalSequencePlanSection(
-    fullStepPattern,
-    interval
-  );
+const buildExampleTemplate = (opts: {
+  hasCtaLink: boolean;
+  hasCompanyName: boolean;
+}): string => {
+  const companyLine = opts.hasCompanyName
+    ? "You represent {{sequence.name}} / the sender's company as described below."
+    : "Reference the sender by name only. Do NOT invent a company name.";
 
-  return `You are a Virtual Assistant representing the sender described in this template.
+  const ctaLines = opts.hasCtaLink
+    ? `- When a booking/CTA link is provided in this template, include it once where a soft ask fits.
+- Do NOT invent any other URL.`
+    : `- No CTA link was provided. Use reply-based CTAs only (e.g. "Reply if you'd like to continue").
+- Do NOT invent any URL.`;
 
-A meeting transcript (when available) may be appended below under "--- TRANSCRIPT ---".
+  const outputSection = buildOutputFormatSection(opts.hasCtaLink);
+  const styleSection = buildStyleReferencesSection(opts.hasCtaLink);
 
-Your task is to generate ONE message for the CURRENT STEP ONLY, using the step context appended below (step number, channel type from the sequence plan, position in sequence).
+  return `You are a Virtual Assistant writing follow-up messages on behalf of the sender described in this template.
+
+A meeting transcript (when available) may be appended under "--- TRANSCRIPT ---".
+
+Your task is to generate ONE message for the CURRENT STEP ONLY. Cadence, channel selection, tone, and intensity are provided separately by the application — do not invent a sequence schedule.
 
 ---
 
-${sequencePlan}
+## ROLE & CONTEXT
+
+- ${companyLine}
+- Follow the scenario and service description in this template.
+- Stay consultative and specific to the lead's situation.
 
 ---
 
@@ -302,7 +236,9 @@ ${sequencePlan}
 ## PERSONALIZATION & LINKS
 
 - Address the lead by name using {{lead.name}}.
-- Company / context: {{lead.company}}, {{lead.location}}, stage: {{lead.followUpStage}}, notes: {{lead.notes}} (omit empty parts).
+- Use available context: {{lead.company}}, {{lead.location}}, {{lead.followUpStage}}, {{lead.notes}} (omit empty parts).
+${ctaLines}
+- Sign messages as the configured sender name.
 
 ---
 
@@ -314,131 +250,32 @@ ${outputSection}
 
 ## STYLE REFERENCES (do not copy verbatim — adapt to transcript and step position)
 
-${styleSection}`;
-};
+${styleSection}
 
-const buildOutputFormatRulesList = (types: StepType[]): string =>
-  types
-    .map((t) => {
-      switch (t) {
-        case "EMAIL":
-          return "   - For EMAIL: Line 1 must be \"SUBJECT: <subject>\", Line 2 blank, then body";
-        case "SMS":
-          return "   - For SMS: No subject line, 2-4 sentences max";
-        case "WHATSAPP":
-          return "   - For WHATSAPP: No subject line, 3-6 sentences, conversational tone";
-        case "CALL":
-          return "   - For CALL: No subject line, 5-8 bullet talking points only";
-        default:
-          return "";
-      }
-    })
-    .filter(Boolean)
-    .join("\n");
+---
 
-const buildGenerationPromptSectionList = (
-  types: StepType[],
-  hasCtaLink: boolean
-): string => {
-  const lines: string[] = [];
+## WRITING GUIDELINES
 
-  for (const t of types) {
-    switch (t) {
-      case "EMAIL":
-        lines.push(
-          `   - EMAIL: Line 1 "SUBJECT: ...", Line 2 blank, body from Line 3`,
-          hasCtaLink
-            ? "     Include the CTA link once in the body."
-            : "     Use a reply-based CTA. Do NOT include any URL."
-        );
-        break;
-      case "SMS":
-        lines.push(
-          "   - SMS: No subject line",
-          hasCtaLink
-            ? "     2-4 sentences max with the CTA link once."
-            : "     2-4 sentences max with a reply-based CTA. No URL."
-        );
-        break;
-      case "WHATSAPP":
-        lines.push(
-          "   - WHATSAPP: No subject line, 3-6 sentences, conversational tone, light formatting (*bold*, _italic_) allowed",
-          hasCtaLink
-            ? "     Include the CTA link once."
-            : "     Reply-based CTA only. No URL."
-        );
-        break;
-      case "CALL":
-        lines.push(
-          "   - CALL: No subject line, 5-8 bullet talking points for a live sales follow-up call (not an email body)"
-        );
-        break;
-    }
-  }
-
-  return lines.join("\n");
-};
-
-const buildCtaInstruction = (
-  types: StepType[],
-  hasCtaLink: boolean,
-  ctaLink?: string
-): string => {
-  const linkTypes = types.filter((t) => LINK_STEP_TYPES.includes(t));
-  const hasCall = types.includes("CALL");
-
-  if (hasCtaLink && ctaLink) {
-    const linkChannels =
-      linkTypes.length > 0 ? linkTypes.join(", ") : "N/A";
-    let text = `- Booking CTA: ${ctaLink}\n- Include this CTA link once in: ${linkChannels}.`;
-    if (hasCall) {
-      text +=
-        "\n- For CALL steps: mention the next step verbally; do not read a long URL aloud.";
-    }
-    return text;
-  }
-
-  let text =
-    '- No CTA link was provided. Use reply-based CTAs (e.g., "Reply to this email", "Let me know if you\'d like to chat"). Do NOT invent any URL.';
-  if (hasCall) {
-    text += "\n- For CALL steps: agree on a verbal next step only.";
-  }
-  return text;
+- Write for the current step only; do not draft the full sequence.
+- Prefer short, natural language over corporate fluff.
+- Use transcript details when present; do not invent facts.
+- Adapt urgency to the step position supplied by the application.`;
 };
 
 const buildGenerationPrompt = (input: GeneratePromptTextInput): string => {
-  const pattern = input.stepTypesPattern as StepType[];
-  const fullStepPattern = formatFullStepPattern(pattern);
-  const channelsInPattern = uniqueChannelsInOrder(pattern);
-  const interval = input.intervalDays ?? 3;
-  const tone = input.toneStyle ?? "Professional but warm and conversational";
-
   const hasCtaLink = !!input.ctaLink;
   const hasCompanyName = !!input.companyName;
-
-  const ctaInstruction = buildCtaInstruction(
-    channelsInPattern,
-    hasCtaLink,
-    input.ctaLink
-  );
+  const channelsList = ALL_CHANNELS.join(", ");
 
   const companyInstruction = hasCompanyName
     ? `Company Name: ${input.companyName}`
     : `Company Name: Not provided. Reference the sender by name only. Do NOT invent a company name.`;
 
-  const channelsList = channelsInPattern.join(", ");
-  const exampleTemplate = buildExampleTemplate(
-    fullStepPattern,
-    interval,
-    channelsInPattern,
-    hasCtaLink
-  );
-  const outputFormatRules = buildOutputFormatRulesList(channelsInPattern);
-  const generationSection5 = buildGenerationPromptSectionList(
-    channelsInPattern,
-    hasCtaLink
-  );
-  const styleChannelsLabel = channelsInPattern.join(", ");
+  const ctaInstruction = hasCtaLink
+    ? `- Booking CTA: ${input.ctaLink}\n- Include this CTA link once in EMAIL, SMS, and WHATSAPP when a soft ask fits.\n- For CALL steps: mention the next step verbally; do not read a long URL aloud.\n- Do NOT invent any other URL.`
+    : `- No CTA link was provided. Use reply-based CTAs only. Do NOT invent any URL.\n- For CALL steps: agree on a verbal next step only.`;
+
+  const exampleTemplate = buildExampleTemplate({ hasCtaLink, hasCompanyName });
 
   return `You are an expert prompt engineer. Your task is to generate a PROMPT TEMPLATE (a meta-prompt) that will later be used to instruct an AI to write follow-up messages for leads.
 
@@ -447,15 +284,12 @@ CRITICAL RULES:
 2. The template MUST use these placeholder variables (double curly braces) — do NOT replace them with real values:
    ${AVAILABLE_VARIABLES.join(", ")}
 3. The template MUST follow the exact structural format shown in the example below.
-4. The OUTPUT FORMAT section is MANDATORY and must include ONLY these channels (one block each): ${channelsList}.
-${outputFormatRules}
-5. Do NOT include OUTPUT FORMAT or STYLE REFERENCES for channels not in this list: ${channelsList}.
-6. SEQUENCE PLAN — use this EXACT text verbatim (do not deduplicate, truncate, reorder, or drop any entry):
-${buildCanonicalSequencePlanSection(fullStepPattern, interval)}
+4. Do NOT include a SEQUENCE PLAN, cadence, interval days, tone, or intensity section.
+   Those are supplied later by the application when generating each step.
+5. The OUTPUT FORMAT section is MANDATORY and must include ALL of these channels (one block each): ${channelsList}.
+6. Include STYLE REFERENCES with examples for ALL channels: ${channelsList}.
 7. The template must instruct AI to generate ONE message for the CURRENT STEP ONLY.
-8. Include STYLE REFERENCES with examples ONLY for: ${styleChannelsLabel} (using {{lead.name}} and other variables).
-9. Do NOT invent or hallucinate any URL or company name that was not provided by the user.
-10. Do NOT change the StepTypes pattern from the user's input: ${fullStepPattern}
+8. Do NOT invent or hallucinate any URL or company name that was not provided by the user.
 
 ---
 
@@ -473,32 +307,26 @@ ${input.serviceDescription}
 
 Sequence Goal:
 ${input.sequenceGoal}
-
-Tone & Style: ${tone}
-
-Step Types Pattern (full cycle — preserve order and duplicates): ${fullStepPattern}
-Interval Days: ${interval}
 ${input.additionalNotes ? `\nAdditional Notes:\n${input.additionalNotes}` : ""}
 
 ---
 
-EXAMPLE TEMPLATE (follow this structure; OUTPUT FORMAT / STYLE only for channels: ${channelsList}):
+EXAMPLE TEMPLATE (follow this structure; include OUTPUT FORMAT / STYLE for all channels: ${channelsList}):
 
 ${exampleTemplate}
 
 ---
 
 NOW generate a complete prompt template based on the user's inputs above. Follow the same section structure:
-1. Opening context (who the AI is writing for, scenario)
-2. SEQUENCE PLAN — copy the exact block from rule 6 above
-3. GOALS (derived from the user's scenario and sequence goal)
-4. PERSONALIZATION & LINKS section must include:
+1. Opening ROLE & CONTEXT (who the AI is writing for, scenario, service)
+2. GOALS (derived from the user's scenario and sequence goal)
+3. PERSONALIZATION & LINKS section must include:
    ${ctaInstruction}
-   - Sign emails as: ${input.senderName}
+   - Sign messages as: ${input.senderName}
    - Use {{variables}} for lead personalization
-5. OUTPUT FORMAT (STRICT) — include ONLY these channels, no others:
-${generationSection5}
-6. STYLE REFERENCES — include examples ONLY for: ${styleChannelsLabel}${!hasCtaLink ? " (no URLs in examples)" : ""}
+4. OUTPUT FORMAT (STRICT) — include ALL channels: ${channelsList}
+5. STYLE REFERENCES — include examples for ALL channels: ${channelsList}${!hasCtaLink ? " (no URLs in examples)" : ""}
+6. WRITING GUIDELINES (business-specific guidance — no cadence/tone/intensity plan)
 
 Output ONLY the template text. No explanations, no markdown code fences.`;
 };
@@ -520,10 +348,6 @@ const generatePromptText = async (
     );
   }
 
-  const pattern = input.stepTypesPattern as StepType[];
-  const fullStepPattern = formatFullStepPattern(pattern);
-  const interval = input.intervalDays ?? 3;
-
   const prompt = buildGenerationPrompt(input);
 
   const aiResponse = await generateContent(
@@ -535,16 +359,10 @@ const generatePromptText = async (
     prompt
   );
 
-  let promptText = aiResponse.content
+  const promptText = aiResponse.content
     .replace(/^```(?:markdown|text)?\n?/i, "")
     .replace(/\n?```$/i, "")
     .trim();
-
-  promptText = injectSequencePlanSection(
-    promptText,
-    fullStepPattern,
-    interval
-  );
 
   return { promptText };
 };
