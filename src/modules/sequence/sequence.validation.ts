@@ -78,9 +78,10 @@ export const generateSaveSchema = z.object({
     promptTemplateId: z
       .string({ required_error: "Prompt Template ID is required" })
       .uuid("Invalid Prompt Template ID"),
-    goal: z.enum(GOAL_TYPES, {
-      message: `Goal must be one of: ${GOAL_TYPES.join(", ")}`,
-    }),
+    goal: z
+      .string({ required_error: "Goal is required" })
+      .trim()
+      .min(1, "Goal cannot be empty"),
     preferences: z.object({
       tone: z.enum(TONE_TYPES, {
         message: `Tone must be one of: ${TONE_TYPES.join(", ")}`,

@@ -22,6 +22,19 @@ const GOAL_CTA: Record<GoalType, string> = {
   "Share resources":    "Share or mention the resource and explain in one sentence why it is relevant to them.",
 };
 
+const isKnownGoal = (goal: string): goal is GoalType =>
+  Object.prototype.hasOwnProperty.call(GOAL_CONTEXT, goal);
+
+const resolveGoalContext = (goal: string): string =>
+  isKnownGoal(goal)
+    ? GOAL_CONTEXT[goal]
+    : `Your goal is: ${goal.trim()}`;
+
+const resolveGoalCta = (goal: string): string =>
+  isKnownGoal(goal)
+    ? GOAL_CTA[goal]
+    : `Close with a clear, low-friction call-to-action aligned to this goal: "${goal.trim()}". Make the next step easy.`;
+
 const TONE_INSTRUCTIONS: Record<ToneType, string> = {
   "Friendly & Professional":
     "Maintain a warm, approachable, professional tone. Balance friendliness with credibility.",
@@ -115,7 +128,7 @@ const resolveLeadVariables = (
 
 export interface WizardStepPromptParams {
   promptText:  string;
-  goal:        GoalType;
+  goal:        string;
   tone:        ToneType;
   intensity:   IntensityType;
   stepContext: { stepOrder: number; totalSteps: number; stepType: string };
@@ -153,7 +166,7 @@ export const buildWizardStepPrompt = (params: WizardStepPromptParams): string =>
     promptText.trim(),
     "",
     "[GOAL]",
-    GOAL_CONTEXT[goal],
+    resolveGoalContext(goal),
     "",
     "[TONE]",
     TONE_INSTRUCTIONS[tone],
@@ -162,7 +175,7 @@ export const buildWizardStepPrompt = (params: WizardStepPromptParams): string =>
     positionHint,
     "",
     "[CTA INSTRUCTION]",
-    GOAL_CTA[goal],
+    resolveGoalCta(goal),
     "",
     getStepTypeInstruction(stepType),
   ];

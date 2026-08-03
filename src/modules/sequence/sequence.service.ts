@@ -801,7 +801,7 @@ const runGenerationLoop = async (
 
       const prompt = buildWizardStepPrompt({
         promptText: wizard.promptText,
-        goal:      wizard.goal      as Parameters<typeof buildWizardStepPrompt>[0]["goal"],
+        goal:      wizard.goal,
         tone:      wizard.tone      as Parameters<typeof buildWizardStepPrompt>[0]["tone"],
         intensity: wizard.intensity as Parameters<typeof buildWizardStepPrompt>[0]["intensity"],
         stepContext: { stepOrder: step.stepOrder, totalSteps: wizard.totalSteps, stepType: step.stepType },
