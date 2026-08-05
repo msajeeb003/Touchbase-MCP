@@ -18,8 +18,22 @@ model User {
   transcripts     LeadTranscript[]
   promptTemplates PromptTemplate[]
   sequences       Sequence[]
+  sequenceGoals   SequenceGoal[]
 
   @@map("users")
+}
+
+model SequenceGoal {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, label])
+  @@index([userId])
+  @@map("sequence_goals")
 }
 
 model Lead {

@@ -966,7 +966,7 @@ const generateAndSave = async (userId: string, payload: GenerateSaveInput) => {
     return { order: i + 1, stepType: stepTypes[i], scheduledAt };
   });
 
-  const sequenceName = `${promptTemplate.name} — ${goal}`;
+  const sequenceName = `${lead.name} — ${goal}`;
 
   const sequence = await prisma.$transaction(async (tx) => {
     const created = await tx.sequence.create({
