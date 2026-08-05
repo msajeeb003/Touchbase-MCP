@@ -4,8 +4,13 @@ import { SettingsService } from "../settings/settings.service";
 import { generateContent } from "../../shared/services/ai.service";
 import { type AIProvider, STEP_TYPE } from "../../shared/constants";
 import { buildPrompt, parseAIResponse } from "../../shared/services/prompt-builder";
-import { CreateStepInput, UpdateStepInput } from "./sequence-step.validation";
+import {
+  CreateStepInput,
+  UpdateStepInput,
+  ReorderStepsInput,
+} from "./sequence-step.validation";
 import { SEQUENCE_STEP_STATUS } from "../../shared/sequence-step";
+import { SEQUENCE_STATUS } from "../../shared/constants";
 
 const verifySequenceOwnership = async (
   userId: string,
@@ -433,6 +438,79 @@ const regenerateAllStepsContent = async (userId: string, sequenceId: string) => 
   return { steps: updatedSteps, results };
 };
 
+const reorderSteps = async (
+  userId: string,
+  sequenceId: string,
+  payload: ReorderStepsInput
+) => {
+  const sequence = await verifySequenceOwnership(userId, sequenceId);
+
+  if (sequence.status !== SEQUENCE_STATUS.DRAFT) {
+    throw new AppError(400, "Steps can only be reordered in draft sequences");
+  }
+
+  const steps = await prisma.sequenceStep.findMany({
+    where: { sequenceId },
+    orderBy: { stepOrder: "asc" },
+  });
+
+  if (steps.length === 0) {
+    throw new AppError(400, "No steps to reorder");
+  }
+
+  const { orderedStepIds } = payload;
+
+  if (orderedStepIds.length !== steps.length) {
+    throw new AppError(
+      400,
+      `orderedStepIds must include all ${steps.length} step(s)`
+    );
+  }
+
+  const uniqueIds = new Set(orderedStepIds);
+  if (uniqueIds.size !== orderedStepIds.length) {
+    throw new AppError(400, "orderedStepIds contains duplicate step IDs");
+  }
+
+  const stepById = new Map(steps.map((s) => [s.id, s]));
+  for (const id of orderedStepIds) {
+    if (!stepById.has(id)) {
+      throw new AppError(400, `Step ${id} does not belong to this sequence`);
+    }
+  }
+
+  // Position-based date slots: keep timeline fixed to order positions
+  const slots = steps.map((s) => s.scheduledAt);
+
+  // Interactive tx over Supabase can expire with many round-trips (default 5s).
+  // Phase 1 = 1 query; Phase 2 = N updates; raise timeout for remote DB latency.
+  await prisma.$transaction(
+    async (tx) => {
+      await tx.$executeRaw`
+        UPDATE sequence_steps
+        SET "stepOrder" = -ABS("stepOrder")
+        WHERE "sequenceId" = ${sequenceId}
+      `;
+
+      for (let i = 0; i < orderedStepIds.length; i++) {
+        await tx.sequenceStep.update({
+          where: { id: orderedStepIds[i] },
+          data: {
+            stepOrder: i + 1,
+            scheduledAt: slots[i],
+          },
+        });
+      }
+    },
+    { maxWait: 15000, timeout: 60000 }
+  );
+
+  return prisma.sequenceStep.findMany({
+    where: { sequenceId },
+    orderBy: { stepOrder: "asc" },
+  });
+};
+
 export const SequenceStepService = {
   createStep,
   getSteps,
@@ -442,4 +520,5 @@ export const SequenceStepService = {
   deleteAllSteps,
   generateStepContent,
   regenerateAllStepsContent,
+  reorderSteps,
 };
