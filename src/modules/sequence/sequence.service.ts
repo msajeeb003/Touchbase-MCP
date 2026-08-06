@@ -560,7 +560,7 @@ const generateSteps = async (userId: string, sequenceId: string) => {
 
   if (!sequence) throw new AppError(404, "Sequence not found");
   if (sequence.status !== SEQUENCE_STATUS.DRAFT) {
-    throw new AppError(400, "Steps can only be generated for draft sequences");
+    throw new AppError(400, "Set this sequence to draft to generate steps.");
   }
   if (!sequence.promptTemplate) {
     throw new AppError(
@@ -864,7 +864,7 @@ const generateAndSave = async (userId: string, payload: GenerateSaveInput) => {
     }
 
     if (sequence.status !== SEQUENCE_STATUS.DRAFT) {
-      throw new AppError(400, `Cannot resume generation on a sequence with status "${sequence.status}". Only draft sequences are allowed.`);
+      throw new AppError(400, "Set this sequence to draft to resume generation.");
     }
 
     const existingOrders = new Set(sequence.steps.map((s) => s.stepOrder));
@@ -1059,7 +1059,7 @@ const regenerateSteps = async (userId: string, sequenceId: string) => {
   }
 
   if (sequence.status !== SEQUENCE_STATUS.DRAFT) {
-    throw new AppError(400, `Cannot regenerate steps on a sequence with status "${sequence.status}". Only draft sequences are allowed.`);
+    throw new AppError(400, "Set this sequence to draft to regenerate steps.");
   }
 
   const aiSettings = await prisma.userSettings.findUnique({ where: { userId }, select: { aiProvider: true, aiModel: true } });

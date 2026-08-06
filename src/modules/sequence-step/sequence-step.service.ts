@@ -12,6 +12,24 @@ import {
 import { SEQUENCE_STEP_STATUS } from "../../shared/sequence-step";
 import { SEQUENCE_STATUS } from "../../shared/constants";
 
+const isDraftOrPaused = (status: string) =>
+  status === SEQUENCE_STATUS.DRAFT || status === SEQUENCE_STATUS.PAUSED;
+
+const assertDraftOnly = (status: string, action: string) => {
+  if (status === SEQUENCE_STATUS.DRAFT) return;
+  throw new AppError(400, `Set this sequence to draft to ${action}.`);
+};
+
+const assertDraftOrPaused = (status: string, action: string) => {
+  if (isDraftOrPaused(status)) return;
+
+  if (status === SEQUENCE_STATUS.ACTIVE) {
+    throw new AppError(400, `Pause this sequence to ${action}.`);
+  }
+
+  throw new AppError(400, `Set this sequence to draft or paused to ${action}.`);
+};
+
 const verifySequenceOwnership = async (
   userId: string,
   sequenceId: string
@@ -34,9 +52,7 @@ const createStep = async (
 ) => {
   const sequence = await verifySequenceOwnership(userId, sequenceId);
 
-  if (sequence.status !== "draft") {
-    throw new AppError(400, "Steps can only be added to draft sequences");
-  }
+  assertDraftOnly(sequence.status, "add steps");
 
   if (payload.stepOrder > sequence.totalSteps) {
     throw new AppError(
@@ -148,9 +164,7 @@ const updateStep = async (
 ) => {
   const sequence = await verifySequenceOwnership(userId, sequenceId);
 
-  if (sequence.status !== "draft") {
-    throw new AppError(400, "Steps can only be edited in draft sequences");
-  }
+  assertDraftOrPaused(sequence.status, "edit its steps");
 
   const step = await getStepById(userId, sequenceId, stepId);
 
@@ -210,9 +224,7 @@ const deleteStep = async (
 ) => {
   const sequence = await verifySequenceOwnership(userId, sequenceId);
 
-  if (sequence.status !== "draft") {
-    throw new AppError(400, "Steps can only be deleted from draft sequences");
-  }
+  assertDraftOnly(sequence.status, "delete steps");
 
   const step = await getStepById(userId, sequenceId, stepId);
 
@@ -236,9 +248,7 @@ const deleteStep = async (
 const deleteAllSteps = async (userId: string, sequenceId: string) => {
   const sequence = await verifySequenceOwnership(userId, sequenceId);
 
-  if (sequence.status !== "draft") {
-    throw new AppError(400, "Steps can only be deleted from draft sequences");
-  }
+  assertDraftOnly(sequence.status, "delete steps");
 
   const result = await prisma.sequenceStep.deleteMany({
     where: { sequenceId },
@@ -267,9 +277,7 @@ const generateStepContent = async (
     throw new AppError(404, "Sequence not found");
   }
 
-  if (sequence.status !== "draft") {
-    throw new AppError(400, "Content can only be generated for draft sequences");
-  }
+  assertDraftOnly(sequence.status, "generate step content");
 
   if (!sequence.promptTemplate) {
     throw new AppError(
@@ -445,9 +453,7 @@ const reorderSteps = async (
 ) => {
   const sequence = await verifySequenceOwnership(userId, sequenceId);
 
-  if (sequence.status !== SEQUENCE_STATUS.DRAFT) {
-    throw new AppError(400, "Steps can only be reordered in draft sequences");
-  }
+  assertDraftOrPaused(sequence.status, "reorder its steps");
 
   const steps = await prisma.sequenceStep.findMany({
     where: { sequenceId },
