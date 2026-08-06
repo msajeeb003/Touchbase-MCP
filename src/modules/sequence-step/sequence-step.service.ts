@@ -224,7 +224,7 @@ const deleteStep = async (
 ) => {
   const sequence = await verifySequenceOwnership(userId, sequenceId);
 
-  assertDraftOnly(sequence.status, "delete steps");
+  assertDraftOrPaused(sequence.status, "delete steps");
 
   const step = await getStepById(userId, sequenceId, stepId);
 
@@ -248,7 +248,7 @@ const deleteStep = async (
 const deleteAllSteps = async (userId: string, sequenceId: string) => {
   const sequence = await verifySequenceOwnership(userId, sequenceId);
 
-  assertDraftOnly(sequence.status, "delete steps");
+  assertDraftOrPaused(sequence.status, "delete steps");
 
   const result = await prisma.sequenceStep.deleteMany({
     where: { sequenceId },
