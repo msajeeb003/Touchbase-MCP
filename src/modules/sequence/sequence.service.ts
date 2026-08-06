@@ -754,6 +754,15 @@ const CHANNEL_TO_STEP_TYPE: Record<string, string> = {
   aicall:   "CALL",
 };
 
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/** Spread N steps evenly across M days: gaps = N-1, so interval can be fractional. */
+const cadenceIntervalDays = (totalSteps: number, totalDays: number): number =>
+  totalDays / Math.max(totalSteps - 1, 1);
+
+const addDaysPrecise = (base: Date, days: number): Date =>
+  new Date(base.getTime() + days * MS_PER_DAY);
+
 type AiConfig        = { provider: AIProvider; apiKey: string; model: string | undefined };
 type StepRow         = { id: string; stepOrder: number; stepType: string };
 type WizardContext   = {
@@ -866,17 +875,18 @@ const generateAndSave = async (userId: string, payload: GenerateSaveInput) => {
       const storedChannels  = (sequence.channels as string[]) ?? [];
       const cadenceMatch    = CADENCE_REGEX.exec(sequence.cadence ?? "")!;
       const totalDays       = parseInt(cadenceMatch[2], 10);
-      const intervalDays    = Math.max(1, Math.round(totalDays / Math.max(sequence.totalSteps - 1, 1)));
+      const intervalDays    = cadenceIntervalDays(sequence.totalSteps, totalDays);
       const stepTypePattern = storedChannels.map((c) => CHANNEL_TO_STEP_TYPE[c]);
       const stepTypes       = expandStepTypesToTotal(stepTypePattern, sequence.totalSteps);
       const anchorDate      = sequence.steps[0]?.scheduledAt ?? sequence.createdAt;
 
       await prisma.sequenceStep.createMany({
-        data: missingOrders.map((order) => {
-          const scheduledAt = new Date(anchorDate);
-          scheduledAt.setDate(scheduledAt.getDate() + (order - 1) * intervalDays);
-          return { sequenceId: sequence.id, stepOrder: order, stepType: stepTypes[order - 1], scheduledAt };
-        }),
+        data: missingOrders.map((order) => ({
+          sequenceId: sequence.id,
+          stepOrder: order,
+          stepType: stepTypes[order - 1],
+          scheduledAt: addDaysPrecise(anchorDate, (order - 1) * intervalDays),
+        })),
       });
     }
 
@@ -954,17 +964,17 @@ const generateAndSave = async (userId: string, payload: GenerateSaveInput) => {
   const cadenceMatch  = CADENCE_REGEX.exec(cadenceRaw)!;
   const totalSteps    = parseInt(cadenceMatch[1], 10);
   const totalDays     = parseInt(cadenceMatch[2], 10);
-  const intervalDays  = Math.max(1, Math.round(totalDays / Math.max(totalSteps - 1, 1)));
+  const intervalDays  = cadenceIntervalDays(totalSteps, totalDays);
   const stepTypes     = expandStepTypesToTotal(channels.map((c) => CHANNEL_TO_STEP_TYPE[c]), totalSteps);
 
   const baseDate = new Date();
   baseDate.setHours(baseDate.getHours() + 6);
 
-  const stepSchedules = Array.from({ length: totalSteps }, (_, i) => {
-    const scheduledAt = new Date(baseDate);
-    scheduledAt.setDate(scheduledAt.getDate() + i * intervalDays);
-    return { order: i + 1, stepType: stepTypes[i], scheduledAt };
-  });
+  const stepSchedules = Array.from({ length: totalSteps }, (_, i) => ({
+    order: i + 1,
+    stepType: stepTypes[i],
+    scheduledAt: addDaysPrecise(baseDate, i * intervalDays),
+  }));
 
   const sequenceName = `${lead.name} — ${goal}`;
 
