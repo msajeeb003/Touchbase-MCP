@@ -16,6 +16,19 @@ import { SEQUENCE_STEP_STATUS } from "../../shared/sequence-step";
 import { SEQUENCE_STATUS } from "../../shared/constants";
 import { logActivity } from "../../shared/services/activity-logger";
 
+const isDraftOrPaused = (status: string) =>
+  status === SEQUENCE_STATUS.DRAFT || status === SEQUENCE_STATUS.PAUSED;
+
+const assertDraftOrPaused = (status: string, action: string) => {
+  if (isDraftOrPaused(status)) return;
+
+  if (status === SEQUENCE_STATUS.ACTIVE) {
+    throw new AppError(400, `Pause this sequence to ${action}.`);
+  }
+
+  throw new AppError(400, `Set this sequence to draft or paused to ${action}.`);
+};
+
 const createSequence = async (userId: string, payload: CreateSequenceInput) => {
   const lead = await prisma.lead.findFirst({
     where: { id: payload.leadId, userId },
@@ -559,9 +572,7 @@ const generateSteps = async (userId: string, sequenceId: string) => {
 
 
   if (!sequence) throw new AppError(404, "Sequence not found");
-  if (sequence.status !== SEQUENCE_STATUS.DRAFT) {
-    throw new AppError(400, "Set this sequence to draft to generate steps.");
-  }
+  assertDraftOrPaused(sequence.status, "generate steps");
   if (!sequence.promptTemplate) {
     throw new AppError(
       400,
@@ -863,9 +874,7 @@ const generateAndSave = async (userId: string, payload: GenerateSaveInput) => {
       throw new AppError(400, "This sequence was not created via the wizard and cannot use resume generation.");
     }
 
-    if (sequence.status !== SEQUENCE_STATUS.DRAFT) {
-      throw new AppError(400, "Set this sequence to draft to resume generation.");
-    }
+    assertDraftOrPaused(sequence.status, "resume generation");
 
     const existingOrders = new Set(sequence.steps.map((s) => s.stepOrder));
     const missingOrders  = Array.from({ length: sequence.totalSteps }, (_, i) => i + 1)
@@ -1058,9 +1067,7 @@ const regenerateSteps = async (userId: string, sequenceId: string) => {
     throw new AppError(400, "This sequence was not created via the wizard and cannot use regenerate-steps.");
   }
 
-  if (sequence.status !== SEQUENCE_STATUS.DRAFT) {
-    throw new AppError(400, "Set this sequence to draft to regenerate steps.");
-  }
+  assertDraftOrPaused(sequence.status, "regenerate steps");
 
   const aiSettings = await prisma.userSettings.findUnique({ where: { userId }, select: { aiProvider: true, aiModel: true } });
   const aiApiKey   = await SettingsService.getDecryptedField(userId, "aiApiKey");

@@ -15,11 +15,6 @@ import { SEQUENCE_STATUS } from "../../shared/constants";
 const isDraftOrPaused = (status: string) =>
   status === SEQUENCE_STATUS.DRAFT || status === SEQUENCE_STATUS.PAUSED;
 
-const assertDraftOnly = (status: string, action: string) => {
-  if (status === SEQUENCE_STATUS.DRAFT) return;
-  throw new AppError(400, `Set this sequence to draft to ${action}.`);
-};
-
 const assertDraftOrPaused = (status: string, action: string) => {
   if (isDraftOrPaused(status)) return;
 
@@ -52,7 +47,7 @@ const createStep = async (
 ) => {
   const sequence = await verifySequenceOwnership(userId, sequenceId);
 
-  assertDraftOnly(sequence.status, "add steps");
+  assertDraftOrPaused(sequence.status, "add steps");
 
   if (payload.stepOrder > sequence.totalSteps) {
     throw new AppError(
@@ -277,7 +272,7 @@ const generateStepContent = async (
     throw new AppError(404, "Sequence not found");
   }
 
-  assertDraftOnly(sequence.status, "generate step content");
+  assertDraftOrPaused(sequence.status, "generate step content");
 
   if (!sequence.promptTemplate) {
     throw new AppError(
