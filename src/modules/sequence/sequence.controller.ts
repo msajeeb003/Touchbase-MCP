@@ -116,6 +116,7 @@ const regenerateStepsHandler = catchAsync(
 
 const generateAndSaveHandler = catchAsync(
   async (req: AuthRequest, res: Response) => {
+    // console.log("body", req.body);
     const result = await SequenceService.generateAndSave(req.user!.id, req.body);
 
     sendResponse(res, {

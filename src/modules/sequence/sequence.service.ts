@@ -857,95 +857,137 @@ const generateAndSave = async (userId: string, payload: GenerateSaveInput) => {
   const { sequenceId, leadId, promptTemplateId, goal, preferences } = payload;
   const { tone, intensity, cadence, channels } = preferences;
 
-  // --- RESUME PATH ---
+  // --- EDIT / REBUILD PATH (sequenceId present) ---
+  // Update wizard fields (incl. leadId) from body → delete all steps → recreate → generate content.
+  // Status stays draft/paused — never activated here.
   if (sequenceId) {
     const sequence = await prisma.sequence.findFirst({
-      where:   { id: sequenceId, userId },
-      include: {
-        lead: true,
-        steps: { orderBy: { stepOrder: "asc" } },
-        promptTemplate: { select: { id: true, name: true, followUpStage: true, promptText: true } },
-      },
+      where: { id: sequenceId, userId },
     });
 
     if (!sequence) throw new AppError(404, "Sequence not found");
 
-    if (!sequence.promptTemplateId || !sequence.promptTemplate || !sequence.goal || !sequence.tone || !sequence.intensity) {
-      throw new AppError(400, "This sequence was not created via the wizard and cannot use resume generation.");
+    if (!sequence.goal || !sequence.tone || !sequence.intensity || !sequence.cadence || !sequence.channels) {
+      throw new AppError(400, "This sequence was not created via the wizard and cannot use generate-save rebuild.");
     }
 
-    assertDraftOrPaused(sequence.status, "resume generation");
+    assertDraftOrPaused(sequence.status, "rebuild this sequence");
 
-    const existingOrders = new Set(sequence.steps.map((s) => s.stepOrder));
-    const missingOrders  = Array.from({ length: sequence.totalSteps }, (_, i) => i + 1)
-      .filter((order) => !existingOrders.has(order));
+    const lead = await prisma.lead.findFirst({ where: { id: leadId, userId } });
+    if (!lead) throw new AppError(404, "Lead not found");
 
-    if (missingOrders.length > 0) {
-      const storedChannels  = (sequence.channels as string[]) ?? [];
-      const cadenceMatch    = CADENCE_REGEX.exec(sequence.cadence ?? "")!;
-      const totalDays       = parseInt(cadenceMatch[2], 10);
-      const intervalDays    = cadenceIntervalDays(sequence.totalSteps, totalDays);
-      const stepTypePattern = storedChannels.map((c) => CHANNEL_TO_STEP_TYPE[c]);
-      const stepTypes       = expandStepTypesToTotal(stepTypePattern, sequence.totalSteps);
-      const anchorDate      = sequence.steps[0]?.scheduledAt ?? sequence.createdAt;
-
-      await prisma.sequenceStep.createMany({
-        data: missingOrders.map((order) => ({
-          sequenceId: sequence.id,
-          stepOrder: order,
-          stepType: stepTypes[order - 1],
-          scheduledAt: addDaysPrecise(anchorDate, (order - 1) * intervalDays),
-        })),
-      });
-    }
-
-    const stepsToGenerate = await prisma.sequenceStep.findMany({
-      where:   { sequenceId: sequence.id, status: SEQUENCE_STEP_STATUS.PENDING },
-      orderBy: { stepOrder: "asc" },
-      select:  { id: true, stepOrder: true, stepType: true },
+    const promptTemplate = await prisma.promptTemplate.findFirst({
+      where: { id: promptTemplateId, userId },
     });
-
-    if (stepsToGenerate.length === 0) {
-      const fullyDone = await prisma.sequence.findFirst({
-        where:   { id: sequence.id },
-        include: { lead: { select: { name: true, email: true, followUpStage: true } }, promptTemplate: { select: { id: true, name: true, followUpStage: true } }, steps: { orderBy: { stepOrder: "asc" } } },
-      });
-      return { alreadyGenerated: true, message: "All steps are already generated.", sequence: fullyDone, generationResults: [] };
-    }
+    if (!promptTemplate) throw new AppError(404, "Prompt template not found");
 
     const aiSettings = await prisma.userSettings.findUnique({ where: { userId }, select: { aiProvider: true, aiModel: true } });
     const aiApiKey   = await SettingsService.getDecryptedField(userId, "aiApiKey");
-    if (!aiSettings?.aiProvider || !aiApiKey) throw new AppError(400, "AI provider and API key not configured. Please set them in Settings.");
+    if (!aiSettings?.aiProvider || !aiApiKey) {
+      throw new AppError(400, "AI provider and API key not configured. Please set them in Settings.");
+    }
+
+    const cadenceRaw   = cadence as string;
+    const cadenceMatch = CADENCE_REGEX.exec(cadenceRaw)!;
+    const totalSteps   = parseInt(cadenceMatch[1], 10);
+    const totalDays    = parseInt(cadenceMatch[2], 10);
+    const intervalDays = cadenceIntervalDays(totalSteps, totalDays);
+    const stepTypes    = expandStepTypesToTotal(
+      channels.map((c) => CHANNEL_TO_STEP_TYPE[c]),
+      totalSteps
+    );
+
+    const baseDate = new Date();
+    baseDate.setHours(baseDate.getHours() + 6);
+
+    const stepSchedules = Array.from({ length: totalSteps }, (_, i) => ({
+      order: i + 1,
+      stepType: stepTypes[i],
+      scheduledAt: addDaysPrecise(baseDate, i * intervalDays),
+    }));
+
+    const previousLeadId = sequence.leadId;
+    const sequenceName = `${lead.name} — ${goal}`;
+
+    // Sequential (no interactive $transaction): avoids Prisma's 5s interactive-tx timeout on slow Supabase.
+    await prisma.sequenceStep.deleteMany({ where: { sequenceId: sequence.id } });
+
+    await prisma.sequence.update({
+      where: { id: sequence.id },
+      data: {
+        leadId: lead.id,
+        promptTemplateId: promptTemplate.id,
+        name: sequenceName,
+        totalSteps,
+        goal,
+        tone,
+        intensity,
+        cadence: cadenceRaw,
+        channels,
+      },
+    });
+
+    await prisma.sequenceStep.createMany({
+      data: stepSchedules.map((s) => ({
+        sequenceId: sequence.id,
+        stepOrder: s.order,
+        stepType: s.stepType,
+        scheduledAt: s.scheduledAt,
+      })),
+    });
+
+    if (previousLeadId !== lead.id) {
+      await syncLeadStatusFromActiveSequences(previousLeadId);
+      await syncLeadStatusFromActiveSequences(lead.id);
+    }
+
+    const rebuilt = await prisma.sequence.findFirst({
+      where: { id: sequence.id },
+      include: { lead: true, steps: { orderBy: { stepOrder: "asc" } } },
+    });
+    if (!rebuilt) throw new AppError(404, "Sequence not found after rebuild");
 
     const generationResults = await runGenerationLoop(
-      sequence.id, sequence.leadId, userId, stepsToGenerate,
+      rebuilt.id,
+      rebuilt.leadId,
+      userId,
+      rebuilt.steps,
       {
-        promptText: sequence.promptTemplate.promptText,
-        goal: sequence.goal,
-        tone: sequence.tone,
-        intensity: sequence.intensity,
-        totalSteps: sequence.totalSteps,
-        sequenceName: sequence.name,
+        promptText: promptTemplate.promptText,
+        goal,
+        tone,
+        intensity,
+        totalSteps,
+        sequenceName,
       },
-      { provider: aiSettings.aiProvider as AIProvider, apiKey: aiApiKey, model: aiSettings.aiModel ?? undefined }
+      {
+        provider: aiSettings.aiProvider as AIProvider,
+        apiKey: aiApiKey,
+        model: aiSettings.aiModel ?? undefined,
+      }
     );
 
     const updatedSequence = await prisma.sequence.findFirst({
-      where:   { id: sequence.id },
-      include: { lead: { select: { name: true, email: true, followUpStage: true } }, promptTemplate: { select: { id: true, name: true, followUpStage: true } }, steps: { orderBy: { stepOrder: "asc" } } },
+      where:   { id: rebuilt.id },
+      include: {
+        lead: { select: { name: true, email: true, followUpStage: true } },
+        promptTemplate: { select: { id: true, name: true, followUpStage: true } },
+        steps: { orderBy: { stepOrder: "asc" } },
+      },
     });
 
     logActivity({
-      sequenceId: sequence.id,
+      sequenceId: rebuilt.id,
       eventType:  "sequence_generated",
       actor:      "user",
       meta:       {
-        promptTemplateId: sequence.promptTemplateId,
-        goal: sequence.goal,
-        tone: sequence.tone,
-        intensity: sequence.intensity,
-        cadence: sequence.cadence,
-        totalSteps: sequence.totalSteps,
+        promptTemplateId: promptTemplate.id,
+        goal,
+        tone,
+        intensity,
+        cadence: cadenceRaw,
+        totalSteps,
+        rebuilt: true,
         stepsGenerated: generationResults.filter((r) => r.status === "generated").length,
       },
     });
