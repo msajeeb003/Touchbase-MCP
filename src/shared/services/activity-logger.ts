@@ -12,7 +12,8 @@ export type ActivityEventType =
   | "step_sending"
   | "step_delivered"
   | "step_failed"
-  | "step_edited";
+  | "step_edited"
+  | "step_generated";
 
 interface LogActivityParams {
   sequenceId: string;

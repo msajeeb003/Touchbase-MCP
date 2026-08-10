@@ -3,7 +3,9 @@ import AppError from "../../shared/errors/AppError";
 import { SettingsService } from "../settings/settings.service";
 import { generateContent } from "../../shared/services/ai.service";
 import { type AIProvider, STEP_TYPE } from "../../shared/constants";
-import { buildPrompt, parseAIResponse } from "../../shared/services/prompt-builder";
+import { parseAIResponse } from "../../shared/services/prompt-builder";
+import { buildWizardStepPrompt } from "../../shared/services/prompt-composer";
+import type { IntensityType, ToneType } from "../sequence/sequence.validation";
 import {
   CreateStepInput,
   UpdateStepInput,
@@ -11,6 +13,7 @@ import {
 } from "./sequence-step.validation";
 import { SEQUENCE_STEP_STATUS } from "../../shared/sequence-step";
 import { SEQUENCE_STATUS } from "../../shared/constants";
+import { logActivity } from "../../shared/services/activity-logger";
 
 const isDraftOrPaused = (status: string) =>
   status === SEQUENCE_STATUS.DRAFT || status === SEQUENCE_STATUS.PAUSED;
@@ -281,6 +284,13 @@ const generateStepContent = async (
     );
   }
 
+  if (!sequence.goal || !sequence.tone || !sequence.intensity) {
+    throw new AppError(
+      400,
+      "This sequence is missing wizard fields (goal, tone, intensity) required to generate step content."
+    );
+  }
+
   // STEP 2: Verify step exists
   const step = await prisma.sequenceStep.findFirst({
     where: { id: stepId, sequenceId },
@@ -355,29 +365,36 @@ const generateStepContent = async (
     transcripts.length > 0
       ? transcripts.map((t) => t.transcript).join("\n\n---\n\n")
       : null;
-  // STEP 7: Build prompt
-  const prompt = buildPrompt({
+
+  const lead = {
+    name: sequence.lead.name,
+    email: sequence.lead.email,
+    phone: sequence.lead.phone,
+    company: sequence.lead.company,
+    location: sequence.lead.location,
+    followUpStage: sequence.lead.followUpStage,
+    notes: sequence.lead.notes,
+  };
+
+  const stepContext = {
+    stepOrder: step.stepOrder,
+    totalSteps: sequence.totalSteps,
+    stepType: step.stepType,
+  };
+
+  // Same prompt path as generate-save / regenerate-steps
+  const prompt = buildWizardStepPrompt({
     promptText: sequence.promptTemplate.promptText,
-    sequenceName: sequence.name,
-    stepContext: {
-      stepOrder: step.stepOrder,
-      totalSteps: sequence.totalSteps,
-      stepType: step.stepType,
-    },
+    goal: sequence.goal,
+    tone: sequence.tone as ToneType,
+    intensity: sequence.intensity as IntensityType,
+    stepContext,
     previousSteps,
-    lead: {
-      name: sequence.lead.name,
-      email: sequence.lead.email,
-      phone: sequence.lead.phone,
-      company: sequence.lead.company,
-      location: sequence.lead.location,
-      followUpStage: sequence.lead.followUpStage,
-      notes: sequence.lead.notes,
-    },
+    lead,
     transcript: transcriptText,
+    sequenceName: sequence.name,
   });
 
-  // STEP 8: Generate content
   const aiResponse = await generateContent(
     {
       provider: provider as AIProvider,
@@ -391,7 +408,7 @@ const generateStepContent = async (
   const parsed = parseAIResponse(aiResponse.content, step.stepType);
 
   // STEP 10: Update step
-  return prisma.sequenceStep.update({
+  const updated = await prisma.sequenceStep.update({
     where: { id: stepId },
     data: {
       subject: parsed.subject,
@@ -399,6 +416,19 @@ const generateStepContent = async (
       status: SEQUENCE_STEP_STATUS.DRAFT,
     },
   });
+
+  logActivity({
+    sequenceId,
+    stepId,
+    eventType: "step_generated",
+    actor: "user",
+    meta: {
+      stepOrder: updated.stepOrder,
+      stepType: updated.stepType,
+    },
+  });
+
+  return updated;
 };
 
 const regenerateAllStepsContent = async (userId: string, sequenceId: string) => {
