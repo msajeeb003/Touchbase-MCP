@@ -2,6 +2,7 @@ import app from "./app";
 import config from "./config";
 import prisma from "./shared/prisma";
 import { startSendProcessor } from "./shared/services/send-processor";
+import { startInboundEmailProcessor } from "./shared/services/inbound-email/inbound-email-processor";
 
 async function connectWithRetry(retries = 5, delay = 3000) {
   for (let i = 1; i <= retries; i++) {
@@ -25,6 +26,7 @@ async function main() {
       console.log(`Server is running on port ${config.port}`);
 
       startSendProcessor();
+      // startInboundEmailProcessor();
       //   const runSendProcessor =
       //     config.env === "production" ||
       //     process.env.ENABLE_SEND_PROCESSOR === "true";

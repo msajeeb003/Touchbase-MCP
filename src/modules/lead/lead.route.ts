@@ -9,6 +9,7 @@ import {
   updateLeadSchema,
 } from "./lead.validation";
 import { LeadTranscriptRoutes } from "../lead-transcript/lead-transcript.route";
+import { LeadInboundEmailRoutes } from "../lead-inbound-email/lead-inbound-email.route";
 
 const router = Router();
 
@@ -54,5 +55,6 @@ router.delete(
 router.delete("/:id", auth, LeadController.deleteLead);
 
 router.use("/:leadId/transcripts", LeadTranscriptRoutes);
+router.use("/:leadId/inbound-emails", LeadInboundEmailRoutes);
 
 export const LeadRoutes = router;
