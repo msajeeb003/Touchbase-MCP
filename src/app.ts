@@ -8,11 +8,16 @@ const app = express();
 
 // parsers
 app.use(cors());
+// Fathom webhook needs the untouched body for signature verification, and transcripts can be large.
+app.use(
+  "/api/v1/auto-draft/webhook",
+  express.raw({ type: "*/*", limit: "5mb" })
+);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cors({
   origin: [
-    "https://follow-up-agent-mu.vercel.app", "https://touch-base-ai.vercel.app", "http://localhost:3000", "http://localhost:8080","https://www.followupaitool.com",
+    "https://follow-up-agent-mu.vercel.app", "https://touch-base-ai.vercel.app", "http://localhost:3000", "http://localhost:8080","https://www.followupaitool.com","https://vertigo-spoon-everglade.ngrok-free.dev"
   ],
   credentials: true
 }))

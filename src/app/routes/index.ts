@@ -8,6 +8,7 @@ import { SequenceRoutes } from "../../modules/sequence/sequence.route";
 import { SequenceGoalRoutes } from "../../modules/sequence-goal/sequence-goal.route";
 import { DashboardRoutes } from "../../modules/dashboard/dashboard.route";
 import { WebhookRoutes } from "../../modules/webhook/webhook.route";
+import { AutoDraftRoutes } from "../../modules/auto-draft/auto-draft.route";
 
 const router = Router();
 
@@ -20,5 +21,6 @@ router.use("/sequences", SequenceRoutes);
 router.use("/sequence-goals", SequenceGoalRoutes);
 router.use("/dashboard", DashboardRoutes);
 router.use("/webhooks", WebhookRoutes);
+router.use("/auto-draft", AutoDraftRoutes);
 
 export default router;

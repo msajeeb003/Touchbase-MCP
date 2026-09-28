@@ -15,10 +15,16 @@ const getFathomApiKey = async (userId: string): Promise<string> => {
   return apiKey;
 };
 
+type FathomRequestInit = {
+  method?: "GET" | "POST" | "DELETE";
+  body?: unknown;
+};
+
 const fathomFetch = async (
   apiKey: string,
   path: string,
-  queryParams?: Record<string, string>
+  queryParams?: Record<string, string>,
+  init?: FathomRequestInit
 ) => {
   const url = new URL(`${FATHOM_BASE_URL}${path}`);
 
@@ -28,11 +34,23 @@ const fathomFetch = async (
     }
   }
 
+  const hasBody = init?.body !== undefined;
+
   const response = await fetch(url.toString(), {
-    headers: { "X-Api-Key": apiKey },
+    method: init?.method ?? "GET",
+    headers: {
+      "X-Api-Key": apiKey,
+      ...(hasBody && { "Content-Type": "application/json" }),
+    },
+    body: hasBody ? JSON.stringify(init!.body) : undefined,
   });
 
   if (!response.ok) {
+    const errorBody = await response.text().catch(() => "");
+    console.error(
+      `[Fathom] ${init?.method ?? "GET"} ${path} → ${response.status}: ${errorBody}`
+    );
+
     if (response.status === 401) {
       throw new AppError(401, FATHOM_ERRORS.INVALID_API_KEY);
     }
@@ -42,7 +60,10 @@ const fathomFetch = async (
     throw new AppError(response.status, FATHOM_ERRORS.FATHOM_ERROR);
   }
 
-  return response.json();
+  if (response.status === 204) return null;
+
+  const text = await response.text();
+  return text ? JSON.parse(text) : null;
 };
 
 type MeetingsQuery = {
@@ -121,8 +142,52 @@ const getSummary = async (userId: string, recordingId: string) => {
   return fathomFetch(apiKey, `/recordings/${recordingId}/summary`);
 };
 
+export type FathomWebhook = {
+  id: string;
+  url: string;
+  secret: string;
+  created_at: string;
+  include_transcript: boolean;
+  include_summary: boolean;
+  include_action_items: boolean;
+  include_crm_matches: boolean;
+  triggered_for: string[];
+};
+
+/** Registers a webhook on Fathom that fires after each of the user's own meetings is processed. */
+const createWebhook = async (
+  userId: string,
+  destinationUrl: string
+): Promise<FathomWebhook> => {
+  const apiKey = await getFathomApiKey(userId);
+
+  const webhook = (await fathomFetch(apiKey, "/webhooks", undefined, {
+    method: "POST",
+    body: {
+      destination_url: destinationUrl,
+      triggered_for: ["my_recordings"],
+      include_transcript: true,
+    },
+  })) as FathomWebhook | null;
+
+  if (!webhook?.id || !webhook.secret) {
+    throw new AppError(502, "Fathom did not return a webhook id and secret");
+  }
+
+  return webhook;
+};
+
+const deleteWebhook = async (userId: string, webhookId: string): Promise<void> => {
+  const apiKey = await getFathomApiKey(userId);
+  await fathomFetch(apiKey, `/webhooks/${encodeURIComponent(webhookId)}`, undefined, {
+    method: "DELETE",
+  });
+};
+
 export const FathomService = {
   getMeetings,
   getTranscript,
   getSummary,
+  createWebhook,
+  deleteWebhook,
 };
