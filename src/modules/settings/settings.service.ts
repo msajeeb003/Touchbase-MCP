@@ -9,6 +9,7 @@ const SENSITIVE_FIELDS = [
   "textmagicApiKey",
   "twilioAuthToken",
   "retellApiKey",
+  "fathomWebhookSecret",
 ] as const;
 
 type SensitiveField = (typeof SENSITIVE_FIELDS)[number];
@@ -78,6 +79,8 @@ const SETTINGS_SELECT = {
   retellApiKey: true,
   retellAgentId: true,
   retellCallerNumber: true,
+  autoDraftEnabled: true,
+  // fathomWebhookId / fathomWebhookSecret are intentionally never returned
   createdAt: true,
   updatedAt: true,
 };

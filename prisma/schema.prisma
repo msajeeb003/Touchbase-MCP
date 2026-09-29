@@ -118,6 +118,10 @@ model Sequence {
   cadence          String?
   channels         Json?
 
+  // Legacy columns added directly on production (migration 20260625000000); unused by the app
+  intervalDays     Int?
+  situation        String?
+
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
   steps            SequenceStep[]
@@ -227,6 +231,18 @@ model UserSettings {
   retellApiKey          String?  // AES-256-GCM encrypted
   retellAgentId         String?
   retellCallerNumber    String?  // E.164; Retell-purchased or Twilio SIP number (must exist in Retell). Falls back to twilioPhoneNumber if unset.
+
+  // Sender profile — added directly on production (migration 20260629120000); unused by the app
+  bookingLink        String?
+  senderCompany      String?
+  senderName         String?
+  senderPosition     String?
+  serviceDescription String?
+
+  // AutoDraft (Fathom webhook → lead, transcript, draft sequence)
+  autoDraftEnabled    Boolean  @default(false)
+  fathomWebhookId     String?
+  fathomWebhookSecret String?  // AES-256-GCM encrypted
 
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt

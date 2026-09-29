@@ -1,22 +1,17 @@
 import config from "../../config";
 import prisma from "../../shared/prisma";
 import AppError from "../../shared/errors/AppError";
+import { encrypt } from "../../shared/utils/encryption";
 import { FathomService } from "../fathom/fathom.service";
+import { SettingsService } from "../settings/settings.service";
 import {
   readSignatureHeaders,
   verifyFathomSignature,
 } from "./fathom-signature";
-import {
-  clearRegistration,
-  getRegistration,
-  markMessageSeen,
-  resolveWebhookSecret,
-  saveRegistration,
-} from "./webhook-registry";
+import { markMessageSeen } from "./delivery-dedupe";
 import {
   FathomMeetingPayload,
   fathomMeetingPayloadSchema,
-  UnregisterWebhookInput,
 } from "./auto-draft.validation";
 import {
   logLeadSyncResult,
@@ -36,67 +31,82 @@ const buildDestinationUrl = (userId: string): string => {
   return `${config.public_base_url}${WEBHOOK_PATH}/${userId}`;
 };
 
-// --- Registration (in-memory for now) ---
-
-const registerFathomWebhook = async (userId: string) => {
-  const destinationUrl = buildDestinationUrl(userId);
-
-  const previous = getRegistration(userId);
-  if (previous) {
-    await FathomService.deleteWebhook(userId, previous.webhookId).catch((err) =>
-      console.warn(`${LOG_PREFIX} Could not delete previous webhook ${previous.webhookId}:`, err)
-    );
-    clearRegistration(userId);
-  }
-
-  const webhook = await FathomService.createWebhook(userId, destinationUrl);
-
-  saveRegistration(userId, {
-    webhookId: webhook.id,
-    secret: webhook.secret,
-    destinationUrl,
-    registeredAt: new Date(),
+const loadToggleState = (userId: string) =>
+  prisma.userSettings.findUnique({
+    where: { userId },
+    select: { autoDraftEnabled: true, fathomWebhookId: true, fathomApiKey: true },
   });
 
-  console.log(`${LOG_PREFIX} Registered Fathom webhook ${webhook.id} → ${destinationUrl}`);
+// --- Toggle ---
 
-  // The secret is returned once so it can be copied into FATHOM_WEBHOOK_SECRET
-  // and survive restarts while there is no DB persistence.
-  return {
-    webhookId: webhook.id,
-    destinationUrl,
-    secret: webhook.secret,
-    note: "Store the secret as FATHOM_WEBHOOK_SECRET in .env; in-memory registration is lost on restart.",
-  };
-};
+type ToggleOutcome = { enabled: boolean; changed: boolean; warning?: string };
 
-const unregisterFathomWebhook = async (userId: string, payload: UnregisterWebhookInput) => {
-  const webhookId = payload.webhookId ?? getRegistration(userId)?.webhookId;
+const enable = async (userId: string): Promise<ToggleOutcome> => {
+  const current = await loadToggleState(userId);
 
-  if (!webhookId) {
-    throw new AppError(400, "No webhook id given and none registered in this process");
+  if (current?.autoDraftEnabled && current.fathomWebhookId) {
+    return { enabled: true, changed: false };
+  }
+  if (!current?.fathomApiKey) {
+    throw new AppError(400, "Add your Fathom API key before enabling AutoDraft.");
   }
 
-  await FathomService.deleteWebhook(userId, webhookId);
-  clearRegistration(userId);
+  const destinationUrl = buildDestinationUrl(userId);
+  const webhook = await FathomService.createWebhook(userId, destinationUrl);
 
-  console.log(`${LOG_PREFIX} Deleted Fathom webhook ${webhookId}`);
+  await prisma.userSettings.update({
+    where: { userId },
+    data: {
+      autoDraftEnabled: true,
+      fathomWebhookId: webhook.id,
+      fathomWebhookSecret: encrypt(webhook.secret),
+    },
+  });
 
-  return { webhookId };
+  console.log(`${LOG_PREFIX} Enabled — Fathom webhook ${webhook.id} → ${destinationUrl}`);
+  return { enabled: true, changed: true };
 };
 
-const getFathomWebhookStatus = (userId: string) => {
-  const registration = getRegistration(userId);
+const disable = async (userId: string): Promise<ToggleOutcome> => {
+  const current = await loadToggleState(userId);
+
+  if (!current || (!current.autoDraftEnabled && !current.fathomWebhookId)) {
+    return { enabled: false, changed: false };
+  }
+
+  let warning: string | undefined;
+
+  if (current.fathomWebhookId) {
+    try {
+      await FathomService.deleteWebhook(userId, current.fathomWebhookId);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "unknown error";
+      warning = `AutoDraft disabled, but the Fathom webhook ${current.fathomWebhookId} could not be deleted (${message}). Remove it in Fathom settings.`;
+      console.warn(`${LOG_PREFIX} ${warning}`);
+    }
+  }
+
+  await prisma.userSettings.update({
+    where: { userId },
+    data: { autoDraftEnabled: false, fathomWebhookId: null, fathomWebhookSecret: null },
+  });
+
+  console.log(`${LOG_PREFIX} Disabled for user ${userId}`);
+  return { enabled: false, changed: true, warning };
+};
+
+const setEnabled = (userId: string, enabled: boolean): Promise<ToggleOutcome> =>
+  enabled ? enable(userId) : disable(userId);
+
+const getStatus = async (userId: string) => {
+  const current = await loadToggleState(userId);
 
   return {
-    registered: registration !== null,
-    webhookId: registration?.webhookId ?? null,
-    destinationUrl: registration?.destinationUrl ?? null,
-    registeredAt: registration?.registeredAt ?? null,
-    secretSource: registration
-      ? "memory"
-      : config.fathom_webhook.secret
-        ? "env"
+    enabled: current?.autoDraftEnabled ?? false,
+    webhookId: current?.fathomWebhookId ?? null,
+    destinationUrl:
+      current?.fathomWebhookId && config.public_base_url
+        ? `${config.public_base_url}${WEBHOOK_PATH}/${userId}`
         : null,
     verificationSkipped: config.fathom_webhook.skip_verify && config.env !== "production",
   };
@@ -113,8 +123,8 @@ const extractMeeting = (body: unknown): unknown => {
 };
 
 type AcceptedDelivery =
-  | { duplicate: true }
-  | { duplicate: false; meeting: FathomMeetingPayload };
+  | { accepted: false; ignored: "disabled" | "duplicate" }
+  | { accepted: true; meeting: FathomMeetingPayload };
 
 const acceptFathomWebhook = async (
   userId: string,
@@ -127,23 +137,32 @@ const acceptFathomWebhook = async (
     `${LOG_PREFIX} Webhook received — user ${userId}, webhook-id ${signatureHeaders.id ?? "(none)"}, body ${rawBody.length} bytes`
   );
 
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
-  if (!user) throw new AppError(404, "Unknown webhook user");
+  const settings = await prisma.userSettings.findUnique({
+    where: { userId },
+    select: { autoDraftEnabled: true },
+  });
+  if (!settings) throw new AppError(404, "Unknown webhook user");
+
+  if (!settings.autoDraftEnabled) {
+    console.log(`${LOG_PREFIX} Delivery ignored — AutoDraft is disabled for user ${userId}`);
+    return { accepted: false, ignored: "disabled" };
+  }
+
   const skipVerify = config.fathom_webhook.skip_verify && config.env !== "production";
 
   if (skipVerify) {
     console.warn(`${LOG_PREFIX} Signature verification SKIPPED (FATHOM_WEBHOOK_SKIP_VERIFY=true)`);
   } else {
-    const secret = resolveWebhookSecret(userId);
+    const secret = await SettingsService.getDecryptedField(userId, "fathomWebhookSecret");
     if (!secret) {
-      throw new AppError(401, "No webhook secret available for this user");
+      throw new AppError(401, "No webhook secret stored for this user. Disable and re-enable AutoDraft.");
     }
     verifyFathomSignature({ secret, rawBody, headers: signatureHeaders });
   }
 
   if (signatureHeaders.id && !markMessageSeen(signatureHeaders.id)) {
     console.log(`${LOG_PREFIX} Duplicate delivery ${signatureHeaders.id} ignored`);
-    return { duplicate: true };
+    return { accepted: false, ignored: "duplicate" };
   }
 
   let parsedBody: unknown;
@@ -175,7 +194,7 @@ const acceptFathomWebhook = async (
       `${invitees.length} invitee(s): ${invitees.map((i) => `${i.email ?? "?"}${i.is_external ? " (external)" : ""}`).join(", ")}`
   );
 
-  return { duplicate: false, meeting: meeting.data };
+  return { accepted: true, meeting: meeting.data };
 };
 
 /** Runs after the HTTP response has been sent; never throws. */
@@ -189,9 +208,8 @@ const runLeadSync = async (userId: string, meeting: FathomMeetingPayload): Promi
 };
 
 export const AutoDraftService = {
-  registerFathomWebhook,
-  unregisterFathomWebhook,
-  getFathomWebhookStatus,
+  setEnabled,
+  getStatus,
   acceptFathomWebhook,
   runLeadSync,
 };

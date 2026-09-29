@@ -9,61 +9,40 @@ import { AutoDraftService } from "./auto-draft.service";
 const handleFathomWebhook = catchAsync(async (req: Request, res: Response) => {
   const userId = req.params.userId as string;
 
-  if (!Buffer.isBuffer(req.body)) {
-    throw new AppError(500, "Raw body not available for signature verification");
+  if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+    throw new AppError(400, "Webhook body is empty or not raw");
   }
 
-  const accepted = await AutoDraftService.acceptFathomWebhook(
+  const delivery = await AutoDraftService.acceptFathomWebhook(
     userId,
     req.body,
     req.headers as Record<string, unknown>
   );
 
-  const responseBody = { received: true, duplicate: accepted.duplicate };
+  const responseBody = delivery.accepted
+    ? { received: true }
+    : { received: true, ignored: delivery.ignored };
+
   res.status(200).json(responseBody);
   console.log(`[AutoDraft] Webhook response → 200 ${JSON.stringify(responseBody)}`);
 
-  if (!accepted.duplicate) {
-    void AutoDraftService.runLeadSync(userId, accepted.meeting);
+  if (delivery.accepted) {
+    void AutoDraftService.runLeadSync(userId, delivery.meeting);
   }
 });
 
-const registerFathomWebhook = catchAsync(async (req: AuthRequest, res: Response) => {
-  const result = await AutoDraftService.registerFathomWebhook(req.user!.id);
-
-  sendResponse(res, {
-    statusCode: 201,
-    success: true,
-    message: "Fathom webhook registered",
-    data: result,
-  });
-});
-
-const unregisterFathomWebhook = catchAsync(async (req: AuthRequest, res: Response) => {
-  const result = await AutoDraftService.unregisterFathomWebhook(req.user!.id, req.body);
+const getStatus = catchAsync(async (req: AuthRequest, res: Response) => {
+  const result = await AutoDraftService.getStatus(req.user!.id);
 
   sendResponse(res, {
     statusCode: 200,
     success: true,
-    message: "Fathom webhook deleted",
-    data: result,
-  });
-});
-
-const getFathomWebhookStatus = catchAsync(async (req: AuthRequest, res: Response) => {
-  const result = AutoDraftService.getFathomWebhookStatus(req.user!.id);
-
-  sendResponse(res, {
-    statusCode: 200,
-    success: true,
-    message: "Fathom webhook status",
+    message: "AutoDraft status",
     data: result,
   });
 });
 
 export const AutoDraftController = {
   handleFathomWebhook,
-  registerFathomWebhook,
-  unregisterFathomWebhook,
-  getFathomWebhookStatus,
+  getStatus,
 };

@@ -43,11 +43,3 @@ export const fathomMeetingPayloadSchema = z.object({
 });
 
 export type FathomMeetingPayload = z.infer<typeof fathomMeetingPayloadSchema>;
-
-export const unregisterWebhookSchema = z.object({
-  body: z.object({
-    webhookId: z.string().min(1).optional(),
-  }),
-});
-
-export type UnregisterWebhookInput = z.infer<typeof unregisterWebhookSchema>["body"];

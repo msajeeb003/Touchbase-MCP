@@ -16,8 +16,6 @@ const config = {
   /** Public HTTPS base URL for Twilio StatusCallback (e.g. ngrok: https://abc.ngrok-free.app) */
   public_base_url: process.env.PUBLIC_BASE_URL?.replace(/\/$/, "") || "",
   fathom_webhook: {
-    /** Fallback signing secret (whsec_...) when no in-memory registration exists for the user. */
-    secret: process.env.FATHOM_WEBHOOK_SECRET || "",
     /** Dev-only escape hatch: skip signature verification. Ignored in production. */
     skip_verify: process.env.FATHOM_WEBHOOK_SKIP_VERIFY === "true",
   },
