@@ -6,6 +6,7 @@ import {
   FathomTranscriptItem,
 } from "../lead-transcript/lead-transcript.service";
 import { FathomMeetingPayload, FathomTranscriptLine } from "./auto-draft.validation";
+import { createDraftForLead, logDraftOutcome } from "./auto-draft.drafter";
 
 const LOG_PREFIX = "[AutoDraft]";
 const INTERNAL_ONLY = "only_internal";
@@ -26,6 +27,8 @@ export type FathomLeadSyncResult = {
   skipped: { email: string | null; reason: string }[];
   transcriptsSaved: string[];
   transcriptsSkipped: { email: string; reason: string }[];
+  drafts: { email: string; sequenceId: string; template: string; goal: string; steps: string }[];
+  draftsSkipped: { email: string; reason: string }[];
   reason?: string;
 };
 
@@ -235,6 +238,8 @@ export const syncLeadsFromFathomMeeting = async (
     skipped: [],
     transcriptsSaved: [],
     transcriptsSkipped: [],
+    drafts: [],
+    draftsSkipped: [],
   };
 
   if (meeting.calendar_invitees_domains_type === INTERNAL_ONLY) {
@@ -267,11 +272,33 @@ export const syncLeadsFromFathomMeeting = async (
         if (!created) await appendMeetingToNotes(lead, info);
       } else {
         result.transcriptsSkipped.push({ email: lead.email, reason: outcome });
+        continue; // a draft is only created for a newly saved transcript
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
       result.transcriptsSkipped.push({ email: lead.email, reason: `failed: ${message}` });
       console.error(`${LOG_PREFIX} Transcript save failed for lead ${lead.id}:`, err);
+      continue;
+    }
+
+    // AutoDraft: one draft sequence per newly saved meeting transcript.
+    const draft = await createDraftForLead({
+      userId,
+      leadId: lead.id,
+      transcript: info.transcriptText,
+    });
+    logDraftOutcome(lead.email, draft);
+
+    if (draft.status === "created") {
+      result.drafts.push({
+        email: lead.email,
+        sequenceId: draft.sequenceId,
+        template: draft.templateName,
+        goal: draft.goal,
+        steps: `${draft.stepsGenerated}/${draft.totalSteps}`,
+      });
+    } else {
+      result.draftsSkipped.push({ email: lead.email, reason: draft.reason });
     }
   }
 
@@ -288,6 +315,8 @@ export const logLeadSyncResult = (userId: string, result: FathomLeadSyncResult):
     skipped: result.skipped,
     transcriptsSaved: result.transcriptsSaved,
     transcriptsSkipped: result.transcriptsSkipped,
+    drafts: result.drafts,
+    draftsSkipped: result.draftsSkipped,
     ...(result.reason && { reason: result.reason }),
   };
   console.log(`${LOG_PREFIX} Lead sync finished`, JSON.stringify(summary));

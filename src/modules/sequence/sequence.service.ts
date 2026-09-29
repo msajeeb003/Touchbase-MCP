@@ -853,9 +853,21 @@ const runGenerationLoop = async (
   return results;
 };
 
-const generateAndSave = async (userId: string, payload: GenerateSaveInput) => {
+export type GenerateSaveOptions = {
+  /** Skip the "one active sequence per lead" check on the create path (used by AutoDraft). */
+  allowWhileActive?: boolean;
+  /** Actor recorded in the activity log. Defaults to "user". */
+  actor?: "user" | "system";
+};
+
+const generateAndSave = async (
+  userId: string,
+  payload: GenerateSaveInput,
+  options: GenerateSaveOptions = {}
+) => {
   const { sequenceId, leadId, promptTemplateId, goal, preferences } = payload;
   const { tone, intensity, cadence, channels } = preferences;
+  const actor = options.actor ?? "user";
 
   // --- EDIT / REBUILD PATH (sequenceId present) ---
   // Update wizard fields (incl. leadId) from body → delete all steps → recreate → generate content.
@@ -1004,8 +1016,10 @@ const generateAndSave = async (userId: string, payload: GenerateSaveInput) => {
   });
   if (!promptTemplate) throw new AppError(404, "Prompt template not found");
 
-  const activeSeq = await prisma.sequence.findFirst({ where: { leadId, userId, status: SEQUENCE_STATUS.ACTIVE } });
-  if (activeSeq) throw new AppError(409, "This lead already has an active sequence. Pause or cancel it first.");
+  if (!options.allowWhileActive) {
+    const activeSeq = await prisma.sequence.findFirst({ where: { leadId, userId, status: SEQUENCE_STATUS.ACTIVE } });
+    if (activeSeq) throw new AppError(409, "This lead already has an active sequence. Pause or cancel it first.");
+  }
 
   const aiSettings = await prisma.userSettings.findUnique({ where: { userId }, select: { aiProvider: true, aiModel: true } });
   const aiApiKey   = await SettingsService.getDecryptedField(userId, "aiApiKey");
@@ -1079,7 +1093,7 @@ const generateAndSave = async (userId: string, payload: GenerateSaveInput) => {
   logActivity({
     sequenceId: sequence.id,
     eventType:  "sequence_generated",
-    actor:      "user",
+    actor,
     meta:       {
       promptTemplateId: promptTemplate.id,
       goal,
