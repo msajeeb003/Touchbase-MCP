@@ -106,17 +106,22 @@ const deleteTranscript = async (
   });
 };
 
-type FathomTranscriptItem = {
+export type FathomTranscriptItem = {
   speaker: { display_name: string };
   text: string;
   timestamp: string;
 };
 
+/** "HH:MM:SS" → "M:SS" (or "H:MM:SS"); anything else is returned unchanged. */
 const formatTimestamp = (ts: string): string => {
   const parts = ts.split(":");
+  if (parts.length !== 3) return ts;
+
   const hours = parseInt(parts[0], 10);
   const minutes = parseInt(parts[1], 10);
   const seconds = parts[2];
+
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) return ts;
 
   if (hours > 0) {
     return `${hours}:${parts[1]}:${seconds}`;
@@ -124,7 +129,7 @@ const formatTimestamp = (ts: string): string => {
   return `${minutes}:${seconds}`;
 };
 
-const formatFathomTranscript = (items: FathomTranscriptItem[]): string => {
+export const formatFathomTranscript = (items: FathomTranscriptItem[]): string => {
   const groups: { speaker: string; timestamp: string; texts: string[] }[] = [];
 
   for (const item of items) {
