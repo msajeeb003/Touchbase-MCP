@@ -51,7 +51,7 @@ const buildSelectionPrompt = (templates: TemplateOption[], transcript: string): 
     )
     .join("\n");
 
-  return `You are choosing how to follow up after a sales meeting.
+  return `You are choosing how to follow up after a meeting.
 
 Below is a list of the user's prompt templates. Each template is written for a specific follow-up situation (its "stage"). Read the meeting transcript and pick the ONE template whose situation matches this meeting best. Then pick the single most fitting goal for the follow-up sequence.
 
