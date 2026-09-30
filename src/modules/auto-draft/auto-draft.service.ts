@@ -133,10 +133,6 @@ const acceptFathomWebhook = async (
 ): Promise<AcceptedDelivery> => {
   const signatureHeaders = readSignatureHeaders(headers);
 
-  console.log(
-    `${LOG_PREFIX} Webhook received — user ${userId}, webhook-id ${signatureHeaders.id ?? "(none)"}, body ${rawBody.length} bytes`
-  );
-
   const settings = await prisma.userSettings.findUnique({
     where: { userId },
     select: { autoDraftEnabled: true },
@@ -144,7 +140,6 @@ const acceptFathomWebhook = async (
   if (!settings) throw new AppError(404, "Unknown webhook user");
 
   if (!settings.autoDraftEnabled) {
-    console.log(`${LOG_PREFIX} Delivery ignored — AutoDraft is disabled for user ${userId}`);
     return { accepted: false, ignored: "disabled" };
   }
 
@@ -161,7 +156,6 @@ const acceptFathomWebhook = async (
   }
 
   if (signatureHeaders.id && !markMessageSeen(signatureHeaders.id)) {
-    console.log(`${LOG_PREFIX} Duplicate delivery ${signatureHeaders.id} ignored`);
     return { accepted: false, ignored: "duplicate" };
   }
 
@@ -172,14 +166,6 @@ const acceptFathomWebhook = async (
     throw new AppError(400, "Webhook body is not valid JSON");
   }
 
-  if (config.env === "development") {
-    const { transcript, ...withoutTranscript } = (extractMeeting(parsedBody) ?? {}) as Record<string, unknown>;
-    console.log(
-      `${LOG_PREFIX} Payload (transcript omitted, ${Array.isArray(transcript) ? transcript.length : 0} lines):\n` +
-        JSON.stringify(withoutTranscript, null, 2)
-    );
-  }
-
   const meeting = fathomMeetingPayloadSchema.safeParse(extractMeeting(parsedBody));
   if (!meeting.success) {
     const topLevelKeys =
@@ -187,12 +173,6 @@ const acceptFathomWebhook = async (
     console.error(`${LOG_PREFIX} Unrecognised payload shape. Top-level keys: ${topLevelKeys.join(", ")}`);
     throw new AppError(400, "Webhook payload does not look like a Fathom meeting");
   }
-
-  const invitees = meeting.data.calendar_invitees ?? [];
-  console.log(
-    `${LOG_PREFIX} Meeting accepted — recording_id ${meeting.data.recording_id ?? "?"}, title "${meeting.data.title ?? ""}", ` +
-      `${invitees.length} invitee(s): ${invitees.map((i) => `${i.email ?? "?"}${i.is_external ? " (external)" : ""}`).join(", ")}`
-  );
 
   return { accepted: true, meeting: meeting.data };
 };

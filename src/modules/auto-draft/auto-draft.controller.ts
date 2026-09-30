@@ -19,12 +19,9 @@ const handleFathomWebhook = catchAsync(async (req: Request, res: Response) => {
     req.headers as Record<string, unknown>
   );
 
-  const responseBody = delivery.accepted
-    ? { received: true }
-    : { received: true, ignored: delivery.ignored };
-
-  res.status(200).json(responseBody);
-  console.log(`[AutoDraft] Webhook response → 200 ${JSON.stringify(responseBody)}`);
+  res.status(200).json(
+    delivery.accepted ? { received: true } : { received: true, ignored: delivery.ignored }
+  );
 
   if (delivery.accepted) {
     void AutoDraftService.runLeadSync(userId, delivery.meeting);
