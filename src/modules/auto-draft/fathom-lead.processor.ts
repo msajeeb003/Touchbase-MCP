@@ -7,6 +7,7 @@ import {
 } from "../lead-transcript/lead-transcript.service";
 import { FathomMeetingPayload, FathomTranscriptLine } from "./auto-draft.validation";
 import { createDraftForLead, logDraftOutcome } from "./auto-draft.drafter";
+import { doNotContactFieldsForNewLead } from "../../harness/do-not-contact";
 
 const LOG_PREFIX = "[AutoDraft]";
 const INTERNAL_ONLY = "only_internal";
@@ -155,6 +156,13 @@ const createLead = async (
   const notes = [LEAD_SOURCE_NOTE, meetingLine(1, info)].join("\n");
 
   try {
+    // An address on the do-not-contact list stays blocked for a lead made here too.
+    const blockedFields = await doNotContactFieldsForNewLead(
+      userId,
+      invitee.email,
+      null
+    );
+
     const lead = await prisma.lead.create({
       data: {
         userId,
@@ -162,6 +170,7 @@ const createLead = async (
         email: invitee.email,
         notes,
         followUpStage: DEFAULT_FOLLOW_UP_STAGE,
+        ...blockedFields,
       },
       select: { id: true, email: true, notes: true },
     });

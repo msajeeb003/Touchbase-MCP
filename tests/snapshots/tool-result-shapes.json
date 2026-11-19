@@ -1,0 +1,700 @@
+{
+  "start_run": {
+    "limits": {
+      "delay_days_max": "number",
+      "email_body_chars": "number",
+      "email_subject_chars": "number",
+      "leads_per_call": "number",
+      "page_size_max": "number",
+      "rows_per_import": "number",
+      "sequence_days_max": "number",
+      "sequences_per_run": "number",
+      "sms_body_chars": "number",
+      "steps_per_sequence": "number",
+      "tool_calls_per_minute": "number",
+      "tool_calls_per_run": "number"
+    },
+    "outbound_mode": "string",
+    "run_id": "string",
+    "same_run_as_before": "boolean",
+    "send_window": {
+      "end": "string",
+      "ready": "boolean",
+      "send_on_weekends": "boolean",
+      "start": "string",
+      "timezone": "null"
+    },
+    "started_at": "string",
+    "status": "string",
+    "warnings": [
+      "string"
+    ]
+  },
+  "get_workspace_profile": {
+    "auto_draft_enabled": "boolean",
+    "booking_link": "null",
+    "email_ready": "boolean",
+    "notes": [
+      "string"
+    ],
+    "outbound_mode": "string",
+    "reply_tracking_enabled": "boolean",
+    "send_window": {
+      "end": "string",
+      "ready": "boolean",
+      "start": "string",
+      "timezone": "null",
+      "weekends": "boolean"
+    },
+    "sender_company": "null",
+    "sender_name": "string",
+    "sender_position": "null",
+    "service_description": "null",
+    "sms_ready": "boolean"
+  },
+  "search_leads": {
+    "leads": [
+      {
+        "created_at": "string",
+        "do_not_contact": "boolean",
+        "has_email": "boolean",
+        "has_phone": "boolean",
+        "last_reply_at": "string",
+        "last_sent_at": "null",
+        "lead_id": "string",
+        "lead_status": "string",
+        "open_sequence_id": "string",
+        "transcript_count": "number",
+        "untrusted": "untrusted"
+      }
+    ],
+    "notes": [],
+    "page": "number",
+    "page_size": "number",
+    "total": "number",
+    "total_pages": "number"
+  },
+  "get_lead": {
+    "lead": {
+      "created_at": "string",
+      "do_not_contact": "boolean",
+      "do_not_contact_since": "null",
+      "has_email": "boolean",
+      "has_phone": "boolean",
+      "last_reply_at": "string",
+      "last_sent_at": "null",
+      "lead_id": "string",
+      "lead_status": "string",
+      "open_sequence_id": "string",
+      "reply_count": "number",
+      "sequences_by_status": {
+        "draft": "number"
+      },
+      "transcript_count": "number",
+      "untrusted": "untrusted"
+    }
+  },
+  "list_lead_transcripts": {
+    "lead_id": "string",
+    "transcripts": [
+      {
+        "chars": "number",
+        "meeting_date": "string",
+        "read_in_this_run": "boolean",
+        "required_before_writing": "boolean",
+        "source": "string",
+        "transcript_id": "string",
+        "untrusted": "untrusted"
+      }
+    ]
+  },
+  "get_lead_transcript": {
+    "has_more": "boolean",
+    "lead_id": "string",
+    "meeting_date": "string",
+    "next_offset": "null",
+    "offset": "number",
+    "source": "string",
+    "total_chars": "number",
+    "transcript_id": "string",
+    "untrusted_meeting_title": "untrusted",
+    "untrusted_transcript_text": "untrusted"
+  },
+  "list_lead_replies": {
+    "lead_id": "string",
+    "notes": [
+      "string"
+    ],
+    "page": "number",
+    "page_size": "number",
+    "replies": [
+      {
+        "received_at": "string",
+        "reply_id": "string",
+        "truncated": "boolean",
+        "untrusted": "untrusted"
+      }
+    ],
+    "total": "number",
+    "total_pages": "number",
+    "tracking_enabled": "boolean"
+  },
+  "list_templates": {
+    "templates": [
+      {
+        "follow_up_stage": "string",
+        "name": "string",
+        "template_id": "string",
+        "updated_at": "string"
+      }
+    ]
+  },
+  "get_template": {
+    "how_to_use": "string",
+    "template": {
+      "follow_up_stage": "string",
+      "name": "string",
+      "prompt_text": "string",
+      "template_id": "string",
+      "updated_at": "string"
+    }
+  },
+  "list_goals": {
+    "goals": [
+      {
+        "goal_id": "string",
+        "label": "string"
+      }
+    ]
+  },
+  "create_lead": {
+    "already_existed": "boolean",
+    "do_not_contact": "boolean",
+    "lead": {
+      "created_at": "string",
+      "do_not_contact": "boolean",
+      "has_email": "boolean",
+      "has_phone": "boolean",
+      "lead_id": "string",
+      "lead_status": "string",
+      "untrusted": "untrusted"
+    }
+  },
+  "update_lead": {
+    "changed_fields": [
+      "string"
+    ],
+    "lead": {
+      "created_at": "string",
+      "do_not_contact": "boolean",
+      "has_email": "boolean",
+      "has_phone": "boolean",
+      "lead_id": "string",
+      "lead_status": "string",
+      "untrusted": "untrusted"
+    },
+    "warnings": []
+  },
+  "import_leads": {
+    "added": "number",
+    "blocked_as_do_not_contact": "number",
+    "duplicates_skipped": "number",
+    "invalid": [],
+    "lead_ids": [
+      "string"
+    ]
+  },
+  "mark_lead_do_not_contact": {
+    "addresses_blocked": [
+      "string"
+    ],
+    "already_marked": "boolean",
+    "do_not_contact": "boolean",
+    "drafts_cancelled": [],
+    "lead_id": "string",
+    "note": "string",
+    "sequences_paused": []
+  },
+  "add_lead_transcript": {
+    "already_existed": "boolean",
+    "chars": "number",
+    "transcript_id": "string"
+  },
+  "create_template": {
+    "already_existed": "boolean",
+    "template": {
+      "follow_up_stage": "string",
+      "name": "string",
+      "template_id": "string",
+      "updated_at": "string"
+    }
+  },
+  "update_template": {
+    "changed_fields": [
+      "string"
+    ],
+    "template": {
+      "follow_up_stage": "string",
+      "name": "string",
+      "template_id": "string",
+      "updated_at": "string"
+    }
+  },
+  "save_goal": {
+    "already_existed": "boolean",
+    "goal": {
+      "goal_id": "string",
+      "label": "string"
+    }
+  },
+  "create_draft_sequences": {
+    "created": "number",
+    "next": "string",
+    "results": [
+      {
+        "lead_id": "string",
+        "matched_template": "null",
+        "outcome": "string",
+        "sequence_id": "string",
+        "transcript_to_read": "null"
+      }
+    ]
+  },
+  "update_sequence": {
+    "approval_request_withdrawn": "boolean",
+    "changed_fields": [
+      "string"
+    ],
+    "sequence": {
+      "approval_status": "string",
+      "approved_at": "null",
+      "created_at": "string",
+      "goal": "string",
+      "lead_id": "string",
+      "no_call_transcript": "boolean",
+      "paused_reason": "null",
+      "run_id": "string",
+      "sequence_id": "string",
+      "status": "string",
+      "steps_failed": "number",
+      "steps_sent": "number",
+      "steps_total": "number",
+      "steps_waiting": "number",
+      "steps_without_text": "number",
+      "template_id": "null",
+      "tone": "null",
+      "untrusted_name": "untrusted"
+    }
+  },
+  "write_steps": {
+    "approval_request_withdrawn": "boolean",
+    "no_call_transcript": "boolean",
+    "sequence_id": "string",
+    "steps": [
+      {
+        "based_on": {
+          "kind": "string",
+          "note": "string",
+          "transcript_ids": [
+            "string"
+          ]
+        },
+        "outcome": "string",
+        "step_number": "number"
+      }
+    ],
+    "steps_still_without_text": "number",
+    "warnings": []
+  },
+  "reschedule_step": {
+    "approval_request_withdrawn": "boolean",
+    "changed": "boolean",
+    "delay_days": "number",
+    "moved_into_send_window": "boolean",
+    "note": "string",
+    "send_at": "null",
+    "sequence_id": "string",
+    "step_number": "number",
+    "warnings": []
+  },
+  "reorder_steps": {
+    "approval_request_withdrawn": "boolean",
+    "changed": "boolean",
+    "sequence_id": "string",
+    "steps": [
+      {
+        "based_on": {
+          "kind": "string",
+          "note": "null",
+          "transcript_ids": []
+        },
+        "channel": "string",
+        "delay_days": "number",
+        "delivery": "null",
+        "scheduled_for": "null",
+        "sent_at": "null",
+        "status": "string",
+        "step_id": "string",
+        "step_number": "number",
+        "untrusted_send_log": "untrusted"
+      }
+    ]
+  },
+  "remove_step": {
+    "already_removed": "boolean",
+    "approval_request_withdrawn": "boolean",
+    "removed": "boolean",
+    "sequence_id": "string",
+    "steps": [
+      {
+        "based_on": {
+          "kind": "string",
+          "note": "null",
+          "transcript_ids": []
+        },
+        "channel": "string",
+        "delay_days": "number",
+        "delivery": "null",
+        "scheduled_for": "null",
+        "sent_at": "null",
+        "status": "string",
+        "step_id": "string",
+        "step_number": "number",
+        "untrusted_send_log": "untrusted"
+      }
+    ],
+    "total_steps": "number"
+  },
+  "request_approval": {
+    "awaiting_approval": "number",
+    "rejected": "number",
+    "results": [
+      {
+        "outcome": "string",
+        "sequence_id": "string"
+      }
+    ],
+    "review_path": "null",
+    "warnings": [
+      "string"
+    ],
+    "what_happens_next": "string"
+  },
+  "skip_step": {
+    "sequence_completed": "boolean",
+    "sequence_id": "string",
+    "step": {
+      "based_on": {
+        "kind": "string",
+        "note": "null",
+        "transcript_ids": []
+      },
+      "channel": "string",
+      "delay_days": "number",
+      "delivery": "null",
+      "scheduled_for": "string",
+      "sent_at": "null",
+      "status": "string",
+      "step_id": "string",
+      "step_number": "number",
+      "untrusted_send_log": "untrusted"
+    },
+    "was_already_skipped": "boolean"
+  },
+  "pause_sequence": {
+    "paused_reason": "string",
+    "sequence_id": "string",
+    "status": "string",
+    "was_already_paused": "boolean"
+  },
+  "resume_sequence": {
+    "error": {
+      "code": "string",
+      "message": "string",
+      "next_step": "string"
+    }
+  },
+  "stop_sequence": {
+    "note": "string",
+    "sequence_id": "string",
+    "status": "string",
+    "steps_skipped": "number",
+    "was_already_ended": "boolean"
+  },
+  "list_sequences": {
+    "page": "number",
+    "page_size": "number",
+    "sequences": [
+      {
+        "approval_status": "string",
+        "approved_at": "null",
+        "created_at": "string",
+        "goal": "null",
+        "lead_do_not_contact": "boolean",
+        "lead_id": "string",
+        "no_call_transcript": "boolean",
+        "paused_reason": "null",
+        "run_id": "string",
+        "sequence_id": "string",
+        "status": "string",
+        "steps_failed": "number",
+        "steps_sent": "number",
+        "steps_total": "number",
+        "steps_waiting": "number",
+        "steps_without_text": "number",
+        "template_id": "null",
+        "tone": "null",
+        "untrusted": "untrusted",
+        "untrusted_name": "untrusted"
+      }
+    ],
+    "total": "number",
+    "total_pages": "number"
+  },
+  "get_sequence": {
+    "lead": {
+      "created_at": "string",
+      "do_not_contact": "boolean",
+      "has_email": "boolean",
+      "has_phone": "boolean",
+      "lead_id": "string",
+      "lead_status": "string",
+      "untrusted": "untrusted"
+    },
+    "sequence": {
+      "approval_status": "string",
+      "approved_at": "null",
+      "created_at": "string",
+      "goal": "string",
+      "lead_id": "string",
+      "no_call_transcript": "boolean",
+      "paused_reason": "null",
+      "run_id": "string",
+      "sequence_id": "string",
+      "status": "string",
+      "steps_failed": "number",
+      "steps_sent": "number",
+      "steps_total": "number",
+      "steps_waiting": "number",
+      "steps_without_text": "number",
+      "template_id": "null",
+      "tone": "null",
+      "untrusted_name": "untrusted"
+    },
+    "steps": [
+      {
+        "based_on": {
+          "kind": "string",
+          "note": "null",
+          "transcript_ids": []
+        },
+        "body": "string",
+        "channel": "string",
+        "delay_days": "number",
+        "delivery": "null",
+        "scheduled_for": "null",
+        "sent_at": "null",
+        "status": "string",
+        "step_id": "string",
+        "step_number": "number",
+        "subject": "null",
+        "untrusted_send_log": "untrusted"
+      }
+    ]
+  },
+  "get_sequence_activity": {
+    "events": [
+      {
+        "actor": "string",
+        "at": "string",
+        "event": "string",
+        "step_number": "null",
+        "untrusted_details": "untrusted"
+      }
+    ],
+    "page": "number",
+    "page_size": "number",
+    "sequence_id": "string",
+    "total": "number",
+    "total_pages": "number"
+  },
+  "get_dashboard": {
+    "drafts_awaiting_approval": "number",
+    "email": {
+      "failed": "number",
+      "of_which_mock": "number",
+      "sent": "number"
+    },
+    "leads": {
+      "by_stage": [
+        {
+          "count": "number",
+          "untrusted_stage": "untrusted"
+        }
+      ],
+      "do_not_contact": "number",
+      "total": "number"
+    },
+    "next_scheduled_steps": [],
+    "notes": [
+      "string"
+    ],
+    "period_days": "number",
+    "replies_received": "number",
+    "sequences_by_status": {
+      "cancelled": "number",
+      "draft": "number",
+      "paused": "number"
+    },
+    "sms": {
+      "failed": "number",
+      "of_which_mock": "number",
+      "sent": "number"
+    },
+    "upcoming_days": "number"
+  },
+  "list_recent_activity": {
+    "events": [
+      {
+        "actor": "string",
+        "at": "string",
+        "channel": "null",
+        "lead_id": "string",
+        "sequence_id": "string",
+        "step_number": "null",
+        "type": "string",
+        "untrusted": "untrusted",
+        "untrusted_details": "untrusted"
+      }
+    ],
+    "notes": [
+      "string"
+    ],
+    "page": "number",
+    "page_size": "number",
+    "since": "string",
+    "total": "number",
+    "total_pages": "number"
+  },
+  "get_run": {
+    "events": {
+      "events": [
+        {
+          "at": "string",
+          "duration_ms": "number",
+          "error_code": "null",
+          "ok": "boolean",
+          "seq": "number",
+          "tool": "string",
+          "touched": [
+            {
+              "id": "string",
+              "type": "string"
+            }
+          ],
+          "untrusted_summary": "untrusted"
+        }
+      ],
+      "has_more": "boolean",
+      "last_seq": "number"
+    },
+    "run": {
+      "client": "string",
+      "counts": {
+        "active": "number",
+        "awaiting_approval": "number",
+        "drafts_with_no_call_transcript": "number",
+        "paused": "number",
+        "sequences": "number",
+        "steps_failed": "number",
+        "steps_sent": "number"
+      },
+      "finished_at": "null",
+      "instruction": "string",
+      "run_id": "string",
+      "started_at": "string",
+      "status": "string",
+      "summary": "null"
+    },
+    "sequences": {
+      "items": [
+        {
+          "approval_status": "string",
+          "approved_at": "null",
+          "lead": {
+            "do_not_contact": "boolean",
+            "lead_id": "string",
+            "untrusted": "untrusted"
+          },
+          "no_call_transcript": "boolean",
+          "paused_reason": "null",
+          "sequence_id": "string",
+          "status": "string",
+          "steps": [
+            {
+              "based_on": {
+                "kind": "string",
+                "note": "null",
+                "transcripts": []
+              },
+              "channel": "string",
+              "delay_days": "number",
+              "delivery_mode": "null",
+              "scheduled_for": "null",
+              "sent_at": "null",
+              "status": "string",
+              "step_id": "string",
+              "step_number": "number"
+            }
+          ],
+          "transcript_added_since": "boolean",
+          "untrusted_name": "untrusted"
+        }
+      ],
+      "pagination": {
+        "limit": "number",
+        "page": "number",
+        "total": "number",
+        "total_pages": "number"
+      }
+    }
+  },
+  "list_runs": {
+    "pagination": {
+      "limit": "number",
+      "page": "number",
+      "total": "number",
+      "total_pages": "number"
+    },
+    "runs": [
+      {
+        "client": "string",
+        "counts": {
+          "active": "number",
+          "awaiting_approval": "number",
+          "drafts_with_no_call_transcript": "number",
+          "paused": "number",
+          "sequences": "number",
+          "steps_failed": "number",
+          "steps_sent": "number"
+        },
+        "finished_at": "null",
+        "instruction": "string",
+        "run_id": "string",
+        "started_at": "string",
+        "status": "string",
+        "summary": "null"
+      }
+    ]
+  },
+  "finish_run": {
+    "already_finished": "boolean",
+    "client": "string",
+    "finished_at": "string",
+    "instruction": "string",
+    "run_id": "string",
+    "started_at": "string",
+    "status": "string",
+    "summary": "string"
+  }
+}

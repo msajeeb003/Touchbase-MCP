@@ -103,7 +103,39 @@ const importCSV = catchAsync(async (req: AuthRequest, res: Response) => {
   });
 });
 
+const markDoNotContact = catchAsync(async (req: AuthRequest, res: Response) => {
+  const result = await LeadService.markDoNotContact(
+    req.user!.id,
+    req.params.id as string,
+    req.body
+  );
+
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: "Lead marked do-not-contact",
+    data: result,
+  });
+});
+
+const clearDoNotContact = catchAsync(async (req: AuthRequest, res: Response) => {
+  const result = await LeadService.clearDoNotContact(
+    req.user!.id,
+    req.params.id as string,
+    req.body
+  );
+
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: "Do-not-contact cleared",
+    data: result,
+  });
+});
+
 export const LeadController = {
+  markDoNotContact,
+  clearDoNotContact,
   createLead,
   getLeads,
   getLeadById,

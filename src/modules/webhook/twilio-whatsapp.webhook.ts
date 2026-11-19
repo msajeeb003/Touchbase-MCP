@@ -1,5 +1,6 @@
 import prisma from "../../shared/prisma";
 import { SEQUENCE_STEP_STATUS } from "../../shared/sequence-step";
+import { STEP_TYPE } from "../../shared/constants";
 import { syncLeadStatusFromActiveSequences } from "../lead/lead.service";
 import { logActivity } from "../../shared/services/activity-logger";
 
@@ -59,6 +60,13 @@ export const processTwilioWhatsAppStatus = async (
 
   if (!step) {
     console.warn(`[Twilio Webhook] No step for MessageSid ${messageSid}`);
+    return;
+  }
+
+  // This webhook may only touch a WHATSAPP step. The request is not signed,
+  // so it must never be able to change an email, SMS or call step.
+  if (step.stepType !== STEP_TYPE.WHATSAPP) {
+    console.warn("[Twilio Webhook] Ignored: the step is not a WhatsApp step");
     return;
   }
 

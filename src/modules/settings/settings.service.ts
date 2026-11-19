@@ -1,6 +1,12 @@
 import prisma from "../../shared/prisma";
 import { encrypt, decrypt, maskSecret } from "../../shared/utils/encryption";
 import { UpdateSettingsInput } from "./settings.validation";
+import AppError from "../../shared/errors/AppError";
+import {
+  DEFAULT_SEND_WINDOW_END,
+  DEFAULT_SEND_WINDOW_START,
+  parseTimeOfDay,
+} from "../../harness/send-window";
 
 const SENSITIVE_FIELDS = [
   "aiApiKey",
@@ -80,6 +86,10 @@ const SETTINGS_SELECT = {
   retellAgentId: true,
   retellCallerNumber: true,
   autoDraftEnabled: true,
+  sendWindowStart: true,
+  sendWindowEnd: true,
+  sendOnWeekends: true,
+  sendTimezone: true,
   // fathomWebhookId / fathomWebhookSecret are intentionally never returned
   createdAt: true,
   updatedAt: true,
@@ -105,6 +115,31 @@ const updateSettings = async (
   userId: string,
   payload: UpdateSettingsInput
 ) => {
+  // Send window: the start must be before the end, also when only one of the
+  // two is being changed.
+  if (
+    payload.sendWindowStart !== undefined ||
+    payload.sendWindowEnd !== undefined
+  ) {
+    const current = await prisma.userSettings.findUnique({
+      where: { userId },
+      select: { sendWindowStart: true, sendWindowEnd: true },
+    });
+    const start = parseTimeOfDay(
+      payload.sendWindowStart ?? current?.sendWindowStart ?? DEFAULT_SEND_WINDOW_START
+    );
+    const end = parseTimeOfDay(
+      payload.sendWindowEnd ?? current?.sendWindowEnd ?? DEFAULT_SEND_WINDOW_END
+    );
+
+    if (start === null || end === null || start >= end) {
+      throw new AppError(
+        400,
+        "The send window start time must be before the end time."
+      );
+    }
+  }
+
   const encryptedData = encryptFields(payload);
 
   const settings = await prisma.userSettings.upsert({

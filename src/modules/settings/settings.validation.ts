@@ -1,5 +1,8 @@
 import { z } from "zod";
 import { AI_PROVIDER_LIST } from "../../shared/constants";
+import { isValidTimeZone } from "../../harness/send-window";
+
+const TIME_OF_DAY = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 export const updateSettingsSchema = z.object({
   body: z.object({
@@ -41,6 +44,29 @@ export const updateSettingsSchema = z.object({
 
     /** Toggling this registers/deletes the Fathom webhook (handled in the controller). */
     autoDraftEnabled: z.boolean().optional(),
+
+    /**
+     * Send window (AI harness). Messages of sequences made through the harness
+     * go out only between these hours, in this timezone. The service also
+     * checks that the start is before the end.
+     */
+    sendWindowStart: z
+      .string()
+      .regex(TIME_OF_DAY, "Use a 24-hour time such as 09:00")
+      .optional(),
+    sendWindowEnd: z
+      .string()
+      .regex(TIME_OF_DAY, "Use a 24-hour time such as 18:00")
+      .optional(),
+    sendOnWeekends: z.boolean().optional(),
+    sendTimezone: z
+      .string()
+      .trim()
+      .refine(isValidTimeZone, {
+        message: 'Unknown timezone. Use a name such as "Europe/London".',
+      })
+      .nullable()
+      .optional(),
   }),
 });
 

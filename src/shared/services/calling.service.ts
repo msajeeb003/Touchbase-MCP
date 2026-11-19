@@ -1,5 +1,7 @@
+import { randomUUID } from "crypto";
 import prisma from "../prisma";
 import { SettingsService } from "../../modules/settings/settings.service";
+import { isMockMode } from "../../harness/switches";
 
 interface RetellConfig {
   apiKey: string;
@@ -35,11 +37,18 @@ interface TriggerCallParams {
 
 interface TriggerCallResult {
   callId: string;
+  /** true when OUTBOUND_MODE=mock: no call was placed */
+  mock?: boolean;
 }
 
 export const triggerCall = async (
   params: TriggerCallParams
 ): Promise<TriggerCallResult> => {
+  // OUTBOUND_MODE=mock (the default): nothing leaves the server.
+  if (isMockMode()) {
+    return { callId: `mock-${randomUUID()}`, mock: true };
+  }
+
   const config = await getRetellConfig(params.userId);
   const fromNumber = await getCallerNumber(params.userId);
 

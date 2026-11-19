@@ -3,6 +3,7 @@ import config from "./config";
 import prisma from "./shared/prisma";
 import { startSendProcessor } from "./shared/services/send-processor";
 import { startInboundEmailProcessor } from "./shared/services/inbound-email/inbound-email-processor";
+import { startBackgroundJobs } from "./harness/startup";
 
 async function connectWithRetry(retries = 5, delay = 3000) {
   for (let i = 1; i <= retries; i++) {
@@ -25,19 +26,14 @@ async function main() {
     app.listen(config.port, () => {
       console.log(`Server is running on port ${config.port}`);
 
-      startSendProcessor();
-      // startInboundEmailProcessor();
-      //   const runSendProcessor =
-      //     config.env === "production" ||
-      //     process.env.ENABLE_SEND_PROCESSOR === "true";
-
-      // if (runSendProcessor) {
-      //   startSendProcessor();
-      // } else {
-      //   console.log(
-      //      "[SendProcessor] Disabled in development (set ENABLE_SEND_PROCESSOR=true to enable)"
-      //   );
-      // }
+      // Background jobs start only when the environment switches allow it:
+      //  - send processor: NODE_ENV=production, or ENABLE_SEND_PROCESSOR=true
+      //  - reply tracking: ENABLE_REPLY_TRACKING=true and OUTBOUND_MODE=live
+      // See src/harness/switches.ts.
+      startBackgroundJobs({
+        sendProcessor: startSendProcessor,
+        replyTracking: startInboundEmailProcessor,
+      });
     });
   } catch (error) {
     console.error("Failed to start server:", error);

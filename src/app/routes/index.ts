@@ -9,6 +9,10 @@ import { SequenceGoalRoutes } from "../../modules/sequence-goal/sequence-goal.ro
 import { DashboardRoutes } from "../../modules/dashboard/dashboard.route";
 import { WebhookRoutes } from "../../modules/webhook/webhook.route";
 import { AutoDraftRoutes } from "../../modules/auto-draft/auto-draft.route";
+import { RunRoutes } from "../../harness/runs/run.route";
+import { McpTokenRoutes } from "../../harness/tokens/token.route";
+import { ActivityRoutes } from "../../harness/activity/activity.route";
+import { ConnectedAppRoutes } from "../../harness/oauth/connected-apps.route";
 
 const router = Router();
 
@@ -22,5 +26,12 @@ router.use("/sequence-goals", SequenceGoalRoutes);
 router.use("/dashboard", DashboardRoutes);
 router.use("/webhooks", WebhookRoutes);
 router.use("/auto-draft", AutoDraftRoutes);
+
+// AI harness: what Claude did (read-only) and the access tokens it connects with.
+// Both take the login token only.
+router.use("/runs", RunRoutes);
+router.use("/mcp-tokens", McpTokenRoutes);
+router.use("/activity", ActivityRoutes);
+router.use("/connected-apps", ConnectedAppRoutes);
 
 export default router;

@@ -1,6 +1,8 @@
+import { randomUUID } from "crypto";
 import prisma from "../prisma";
 import { SettingsService } from "../../modules/settings/settings.service";
 import config from "../../config";
+import { isMockMode } from "../../harness/switches";
 
 interface WhatsAppConfig {
   accountSid: string;
@@ -20,6 +22,8 @@ export type SendWhatsAppResult = {
   status: string;
   /** webhook: final status via StatusCallback; immediate: no callback URL configured */
   mode: "webhook" | "immediate";
+  /** true when OUTBOUND_MODE=mock: nothing was sent to Twilio */
+  mock?: boolean;
 };
 
 const getStatusCallbackUrl = (): string | null => {
@@ -104,6 +108,11 @@ export const sendWhatsApp = async (
   phone: string,
   text: string
 ): Promise<SendWhatsAppResult> => {
+  // OUTBOUND_MODE=mock (the default): nothing leaves the server.
+  if (isMockMode()) {
+    return { sid: `mock-${randomUUID()}`, status: "mock", mode: "immediate", mock: true };
+  }
+
   const twilioConfig = await getWhatsAppConfig(userId);
 
   const url = `https://api.twilio.com/2010-04-01/Accounts/${twilioConfig.accountSid}/Messages.json`;

@@ -1,6 +1,15 @@
+import type { Prisma } from "@prisma/client";
 import prisma from "../../shared/prisma";
 import AppError from "../../shared/errors/AppError";
 import { syncLeadStatusFromActiveSequences } from "../lead/lead.service";
+import {
+  DO_NOT_CONTACT_MESSAGE,
+  isLeadBlocked,
+} from "../../harness/do-not-contact";
+import { computeApprovalHash } from "../../harness/approval";
+import { loadSendWindow, planSendDates } from "../../harness/send-window";
+import { SKIPPED_ON_REQUEST } from "../../harness/common";
+import { refreshRunAfterApproval } from "../../harness/runs/run.service";
 import {
   CreateSequenceInput,
   UpdateSequenceInput,
@@ -171,7 +180,15 @@ const SEQUENCE_INCLUDE = {
 
 const recoverSkippedSteps = async (sequenceId: string) => {
   const skippedSteps = await prisma.sequenceStep.findMany({
-    where: { sequenceId, status: SEQUENCE_STEP_STATUS.SKIPPED },
+    where: {
+      sequenceId,
+      status: SEQUENCE_STEP_STATUS.SKIPPED,
+      // A step that was skipped on request (skip_step) stays skipped.
+      OR: [
+        { sendLog: null },
+        { NOT: { sendLog: { startsWith: SKIPPED_ON_REQUEST } } },
+      ],
+    },
     select: { id: true, content: true },
   });
 
@@ -202,7 +219,8 @@ const recoverSkippedSteps = async (sequenceId: string) => {
 
 const transitionToActive = async (
   sequenceId: string,
-  sequence: Awaited<ReturnType<typeof getSequenceById>>
+  sequence: Awaited<ReturnType<typeof getSequenceById>>,
+  actorUserId: string
 ) => {
   const otherActive = await prisma.sequence.findFirst({
     where: {
@@ -231,6 +249,16 @@ const transitionToActive = async (
     );
   }
 
+  // AI harness, rule 4: a do-not-contact lead cannot be activated.
+  const lead = await prisma.lead.findUnique({
+    where: { id: sequence.leadId },
+    select: { userId: true, email: true, phone: true, doNotContact: true },
+  });
+
+  if (!lead || (await isLeadBlocked(lead))) {
+    throw new AppError(400, DO_NOT_CONTACT_MESSAGE);
+  }
+
   await recoverSkippedSteps(sequenceId);
 
   const pendingSteps = await prisma.sequenceStep.count({
@@ -244,18 +272,48 @@ const transitionToActive = async (
     );
   }
 
-  const pastUnsent = await prisma.sequenceStep.findMany({
-    where: {
-      sequenceId,
-      scheduledAt: { lte: new Date() },
-      status: {
-        notIn: [
-          SEQUENCE_STEP_STATUS.SENT,
-          SEQUENCE_STEP_STATUS.FAILED,
-        ],
-      },
+  const now = new Date();
+
+  const steps = await prisma.sequenceStep.findMany({
+    where: { sequenceId },
+    orderBy: { stepOrder: "asc" },
+    select: {
+      id: true,
+      stepOrder: true,
+      stepType: true,
+      subject: true,
+      content: true,
+      status: true,
+      scheduledAt: true,
+      sentAt: true,
+      delayMinutes: true,
     },
-    select: { stepOrder: true },
+  });
+
+  // AI harness, rule 8: a sequence made through the harness gets its real
+  // send dates now, inside the user's send window. Without a timezone it
+  // cannot be approved. Sequences made in the wizard are not affected.
+  let plannedDates: Map<string, Date> | null = null;
+
+  if (sequence.runId) {
+    const sendWindow = await loadSendWindow(sequence.userId);
+    if (!sendWindow.ok) {
+      throw new AppError(400, sendWindow.message);
+    }
+    plannedDates = planSendDates(steps, sendWindow.window, now);
+  }
+
+  const pastUnsent = steps.filter((s) => {
+    if (
+      s.status === SEQUENCE_STEP_STATUS.SENT ||
+      s.status === SEQUENCE_STEP_STATUS.FAILED
+    ) {
+      return false;
+    }
+    const planned = plannedDates?.get(s.id);
+    return planned
+      ? planned.getTime() < now.getTime()
+      : s.scheduledAt.getTime() <= now.getTime();
   });
 
   if (pastUnsent.length > 0) {
@@ -266,22 +324,55 @@ const transitionToActive = async (
     );
   }
 
-  return prisma.$transaction(async (tx) => {
-    await tx.sequenceStep.updateMany({
-      where: { sequenceId, status: SEQUENCE_STEP_STATUS.DRAFT },
-      data: { status: SEQUENCE_STEP_STATUS.SCHEDULED },
-    });
-
-    const updated = await tx.sequence.update({
-      where: { id: sequenceId },
-      data: { status: SEQUENCE_STATUS.ACTIVE },
-      include: SEQUENCE_INCLUDE,
-    });
-
-    await syncLeadStatusFromActiveSequences(sequence.leadId, tx);
-
-    return updated;
+  // AI harness, rule 1: record who released this, when, and exactly what.
+  const approvedContentHash = computeApprovalHash({
+    leadEmail: lead.email,
+    leadPhone: lead.phone,
+    steps,
   });
+
+  return prisma.$transaction(
+    async (tx) => {
+      if (plannedDates) {
+        for (const [stepId, scheduledAt] of plannedDates) {
+          await tx.sequenceStep.update({
+            where: { id: stepId },
+            data: { scheduledAt },
+          });
+        }
+      }
+
+      await tx.sequenceStep.updateMany({
+        where: { sequenceId, status: SEQUENCE_STEP_STATUS.DRAFT },
+        data: { status: SEQUENCE_STEP_STATUS.SCHEDULED },
+      });
+
+      const updated = await tx.sequence.update({
+        where: { id: sequenceId },
+        data: {
+          status: SEQUENCE_STATUS.ACTIVE,
+          approvalStatus: "approved",
+          approvedAt: now,
+          approvedByUserId: actorUserId,
+          approvedContentHash,
+          pausedReason: null,
+          pausedAt: null,
+        },
+        include: SEQUENCE_INCLUDE,
+      });
+
+      await syncLeadStatusFromActiveSequences(sequence.leadId, tx);
+
+      // A run that was waiting for a person is complete once its last draft is released.
+      if (sequence.runId) {
+        await refreshRunAfterApproval(sequence.runId, tx);
+      }
+
+      return updated;
+    },
+    // Same reason as reorderSteps: one update per step over a remote database.
+    plannedDates ? { maxWait: 15000, timeout: 60000 } : undefined
+  );
 };
 
 const transitionToDraft = async (
@@ -357,7 +448,14 @@ const transitionSimple = async (
   return prisma.$transaction(async (tx) => {
     const updated = await tx.sequence.update({
       where: { id: sequenceId },
-      data: { status: newStatus },
+      data:
+        newStatus === SEQUENCE_STATUS.PAUSED
+          ? {
+              status: newStatus,
+              pausedReason: "paused_by_user",
+              pausedAt: new Date(),
+            }
+          : { status: newStatus },
       include: SEQUENCE_INCLUDE,
     });
 
@@ -367,10 +465,15 @@ const transitionSimple = async (
   });
 };
 
+/**
+ * `actorUserId` is the logged-in person making the change. Activation is
+ * reached only from the REST route (login session), never from the MCP server.
+ */
 const changeSequenceStatus = async (
   sequenceId: string,
   sequence: Awaited<ReturnType<typeof getSequenceById>>,
-  newStatus: string
+  newStatus: string,
+  actorUserId: string
 ) => {
   if (sequence.status === newStatus) {
     throw new AppError(400, `Sequence is already "${newStatus}"`);
@@ -378,7 +481,7 @@ const changeSequenceStatus = async (
 
   switch (newStatus) {
     case SEQUENCE_STATUS.ACTIVE:
-      return transitionToActive(sequenceId, sequence);
+      return transitionToActive(sequenceId, sequence, actorUserId);
     case SEQUENCE_STATUS.DRAFT:
       return transitionToDraft(sequenceId, sequence);
     case SEQUENCE_STATUS.CANCELLED:
@@ -399,7 +502,12 @@ const updateSequence = async (
   const sequence = await getSequenceById(userId, sequenceId);
 
   if (payload.status) {
-    const result = await changeSequenceStatus(sequenceId, sequence, payload.status);
+    const result = await changeSequenceStatus(
+      sequenceId,
+      sequence,
+      payload.status,
+      userId
+    );
     logActivity({
       sequenceId,
       eventType: "sequence_status_changed",
@@ -409,9 +517,43 @@ const updateSequence = async (
     return result;
   }
 
+  // Only these four fields can be edited here, and a lead or a template must
+  // belong to the same user. Nothing else from the request reaches the database.
+  const data: Prisma.SequenceUncheckedUpdateInput = {};
+
+  if (payload.name !== undefined) data.name = payload.name;
+  if (payload.totalSteps !== undefined) data.totalSteps = payload.totalSteps;
+
+  if (payload.leadId !== undefined && payload.leadId !== sequence.leadId) {
+    const lead = await prisma.lead.findFirst({
+      where: { id: payload.leadId, userId },
+      select: { id: true },
+    });
+    if (!lead) {
+      throw new AppError(404, "Lead not found");
+    }
+    data.leadId = payload.leadId;
+  }
+
+  if (
+    payload.promptTemplateId !== undefined &&
+    payload.promptTemplateId !== sequence.promptTemplateId
+  ) {
+    if (payload.promptTemplateId !== null) {
+      const template = await prisma.promptTemplate.findFirst({
+        where: { id: payload.promptTemplateId, userId },
+        select: { id: true },
+      });
+      if (!template) {
+        throw new AppError(404, "Prompt template not found");
+      }
+    }
+    data.promptTemplateId = payload.promptTemplateId;
+  }
+
   const result = await prisma.sequence.update({
     where: { id: sequenceId },
-    data: payload,
+    data,
     include: {
       lead: { select: { name: true, email: true, followUpStage: true } },
       promptTemplate: { select: { id: true, name: true, followUpStage: true } },

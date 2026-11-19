@@ -21,6 +21,11 @@ model User {
   sequenceGoals     SequenceGoal[]
   leadInboundEmails LeadInboundEmail[]
   imapSyncState     ImapSyncState?
+  suppressedContacts SuppressedContact[]
+  agentRuns          AgentRun[]
+  apiTokens          ApiToken[]
+  oauthCodes         OAuthAuthCode[]
+  oauthGrants        OAuthGrant[]
 
   @@map("users")
 }
@@ -55,6 +60,12 @@ model Lead {
   transcripts       LeadTranscript[]
   sequences         Sequence[]
   inboundEmails     LeadInboundEmail[]
+
+  // AI harness: do-not-contact. Fast flag for lists; the checks use suppressed_contacts.
+  doNotContact       Boolean   @default(false)
+  doNotContactAt     DateTime?
+  doNotContactReason String?
+  doNotContactSource String? // "mcp" | "user" | "system"
 
   @@unique([userId, email])
   @@index([userId])
@@ -127,8 +138,21 @@ model Sequence {
   steps            SequenceStep[]
   activities       SequenceActivity[]
 
+  // AI harness
+  runId               String? // the run (one user instruction) that created it; null for app-made sequences
+  run                 AgentRun? @relation(fields: [runId], references: [id], onDelete: NoAction, onUpdate: Cascade)
+  approvalStatus      String    @default("none") // "none" | "awaiting_approval" | "approved"
+  approvalRequestedAt DateTime?
+  approvedAt          DateTime?
+  approvedByUserId    String?
+  approvedContentHash String? // hash of the steps at the moment a person activated the sequence
+  pausedReason        String? // "lead_replied" | "paused_by_claude" | "paused_by_user"
+  pausedAt            DateTime?
+
   @@index([userId])
   @@index([leadId])
+  @@unique([runId, leadId])
+  @@index([runId])
   @@map("sequences")
 }
 
@@ -151,8 +175,18 @@ model SequenceStep {
 
   activities  SequenceActivity[]
 
+  // AI harness
+  runId            String?
+  delayMinutes     Int? // delay after the previous step (step 1: after approval); the real date is set at approval
+  sendingStartedAt DateTime? // set when the send processor claims the step, just before sending
+  deliveryMode     String? // "live" | "mock"
+  basis                String? // "transcript" | "notes_and_stage" | "not_stated"
+  basedOnTranscriptIds Json?   // up to 3 transcript ids the message was written from
+  basedOnNote          String? // one short line on what was taken from the call
+
   @@unique([sequenceId, stepOrder])
   @@index([sequenceId])
+  @@index([runId])
   @@map("sequence_steps")
 }
 
@@ -241,6 +275,12 @@ model UserSettings {
 
   // AutoDraft (Fathom webhook → lead, transcript, draft sequence)
   autoDraftEnabled    Boolean  @default(false)
+
+  // AI harness: send window. Messages go out only inside these hours, in sendTimezone.
+  sendWindowStart String  @default("09:00")
+  sendWindowEnd   String  @default("18:00")
+  sendOnWeekends  Boolean @default(false)
+  sendTimezone    String? // IANA name, e.g. "Europe/London". No default on purpose.
   fathomWebhookId     String?
   fathomWebhookSecret String?  // AES-256-GCM encrypted
 
@@ -279,4 +319,151 @@ model ImapSyncState {
   updatedAt DateTime @updatedAt
 
   @@map("imap_sync_states")
+}
+
+/// AI harness: one row per blocked email address or phone number.
+/// Kept when the lead is deleted, so a re-imported address stays blocked.
+model SuppressedContact {
+  id              String    @id @default(uuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind            String // "email" | "phone"
+  value           String // lower-cased email, or phone as +digits
+  reason          String?
+  source          String // "mcp" | "user" | "system"
+  runId           String?
+  leadId          String? // the lead it was set from (no foreign key: survives lead deletion)
+  createdAt       DateTime  @default(now())
+  clearedAt       DateTime? // set only by the human-only REST endpoint
+  clearedByUserId String?
+  clearReason     String?
+
+  @@unique([userId, kind, value])
+  @@index([userId])
+  @@map("suppressed_contacts")
+}
+
+/// AI harness: one run per instruction the user typed in Claude.
+model AgentRun {
+  id          String    @id @default(uuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  instruction String    @db.Text
+  status      String    @default("in_progress") // "in_progress" | "awaiting_approval" | "completed" | "failed" | "abandoned"
+  summary     String?   @db.Text
+  clientName  String?
+  createdAt   DateTime  @default(now())
+  finishedAt  DateTime?
+
+  events    AgentRunEvent[]
+  sequences Sequence[]
+
+  @@index([userId, createdAt])
+  @@map("agent_runs")
+}
+
+/// AI harness: one row per tool call made inside a run.
+model AgentRunEvent {
+  id         String   @id @default(uuid())
+  runId      String
+  run        AgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  seq        Int // order inside the run: 1, 2, 3 ...
+  toolName   String
+  summary    String // one line for a person
+  ok         Boolean
+  errorCode  String?
+  touched    Json     @default("[]") // the records it touched: [{ type, id, label }]
+  detail     Json? // small facts the server needs later, e.g. which transcript was read
+  durationMs Int?
+  createdAt  DateTime @default(now())
+
+  @@unique([runId, seq])
+  @@map("agent_run_events")
+}
+
+/// AI harness: an access token that lets Claude act for one user through /mcp.
+/// Only the SHA-256 hash is stored. The token itself is shown once, when it is made.
+model ApiToken {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name       String
+  tokenHash  String    @unique
+  prefix     String // first characters of the token, to recognise it in a list
+  lastUsedAt DateTime?
+  expiresAt  DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+  @@map("api_tokens")
+}
+
+/// AI harness, OAuth: an app that may ask users to sign in (for example Claude).
+/// Registered by Dynamic Client Registration, or known by its metadata URL (CIMD).
+model OAuthClient {
+  id           String    @id @default(uuid())
+  clientId     String    @unique // "tbc_..." (registered) or the https URL of its metadata document
+  clientName   String
+  redirectUris Json // list of allowed return addresses
+  kind         String // "dcr" | "cimd"
+  createdAt    DateTime  @default(now())
+  lastUsedAt   DateTime?
+
+  @@map("oauth_clients")
+}
+
+/// AI harness, OAuth: a one-time sign-in code. Lives 10 minutes, used once.
+model OAuthAuthCode {
+  id            String    @id @default(uuid())
+  codeHash      String    @unique
+  clientId      String
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  redirectUri   String
+  codeChallenge String // PKCE, S256
+  scope         String
+  resource      String
+  expiresAt     DateTime
+  usedAt        DateTime?
+  grantId       String? // the grant the code was exchanged for
+  createdAt     DateTime  @default(now())
+
+  @@index([userId])
+  @@map("oauth_auth_codes")
+}
+
+/// AI harness, OAuth: one user's permission for one app. Revoking it ends every key it issued.
+model OAuthGrant {
+  id         String       @id @default(uuid())
+  userId     String
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clientId   String
+  clientName String
+  scope      String
+  resource   String
+  createdAt  DateTime     @default(now())
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+  tokens     OAuthToken[]
+
+  @@index([userId])
+  @@map("oauth_grants")
+}
+
+/// AI harness, OAuth: an access key (1 hour) or a refresh key (30 days, replaced on every use).
+/// Only the SHA-256 hash is stored.
+model OAuthToken {
+  id        String     @id @default(uuid())
+  grantId   String
+  grant     OAuthGrant @relation(fields: [grantId], references: [id], onDelete: Cascade)
+  kind      String // "access" | "refresh"
+  tokenHash String     @unique
+  expiresAt DateTime
+  usedAt    DateTime? // a refresh key is used once
+  revokedAt DateTime?
+  createdAt DateTime   @default(now())
+
+  @@index([grantId])
+  @@map("oauth_tokens")
 }

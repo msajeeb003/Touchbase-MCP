@@ -93,6 +93,29 @@ export const updateLeadSchema = z.object({
   }),
 });
 
+/** Marking a lead do-not-contact. The reason is optional. */
+export const markDoNotContactSchema = z.object({
+  body: z
+    .object({
+      reason: z.string().trim().max(300, "Reason must be 300 characters or less").optional(),
+    })
+    .optional()
+    .transform((body) => body ?? {}),
+});
+
+/** Clearing do-not-contact. A reason is required and is stored with the record. */
+export const clearDoNotContactSchema = z.object({
+  body: z.object({
+    reason: z
+      .string({ required_error: "A reason is required" })
+      .trim()
+      .min(1, "A reason is required")
+      .max(300, "Reason must be 300 characters or less"),
+  }),
+});
+
+export type MarkDoNotContactInput = z.infer<typeof markDoNotContactSchema>["body"];
+export type ClearDoNotContactInput = z.infer<typeof clearDoNotContactSchema>["body"];
 export type CreateLeadInput = z.infer<typeof createLeadSchema>["body"];
 export type BulkDeleteLeadsInput = z.infer<typeof bulkDeleteLeadsSchema>["body"];
 export type UpdateLeadInput = z.infer<typeof updateLeadSchema>["body"];

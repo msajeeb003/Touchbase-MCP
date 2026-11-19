@@ -7,6 +7,7 @@
     "dev": "node node_modules/tsx/dist/cli.mjs watch src/server.ts",
     "build": "node node_modules/typescript/bin/tsc",
     "start": "node dist/server.js",
+    "test": "node tests/run.cjs",
     "prisma:generate": "node node_modules/prisma/build/index.js generate",
     "prisma:migrate": "node node_modules/prisma/build/index.js migrate dev",
     "prisma:studio": "node node_modules/prisma/build/index.js studio"
@@ -16,6 +17,9 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.87.0",
     "@google/generative-ai": "^0.24.1",
+    "@modelcontextprotocol/express": "^2.0.2",
+    "@modelcontextprotocol/node": "^2.1.2",
+    "@modelcontextprotocol/server": "^2.4.0",
     "@prisma/client": "^6.19.2",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
@@ -29,9 +33,11 @@
     "node-cron": "^4.2.1",
     "nodemailer": "^8.0.2",
     "openai": "^6.27.0",
-    "zod": "^3.25.76"
+    "zod": "^3.25.76",
+    "zod4": "npm:zod@^4.6.7"
   },
   "devDependencies": {
+    "@modelcontextprotocol/client": "^2.4.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",

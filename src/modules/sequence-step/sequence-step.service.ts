@@ -432,6 +432,9 @@ const generateStepContent = async (
 };
 
 const regenerateAllStepsContent = async (userId: string, sequenceId: string) => {
+  // Another user's sequence must look exactly like a missing one.
+  await verifySequenceOwnership(userId, sequenceId);
+
   const steps = await prisma.sequenceStep.findMany({
     where: { sequenceId },
     orderBy: { stepOrder: "asc" },

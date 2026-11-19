@@ -9,6 +9,7 @@ import {
   resolveImapConfig,
 } from "./imap-config";
 import { normalizeEmail, parseEmailAddress } from "./parse-email-address";
+import { pauseActiveSequencesForLead } from "../../../harness/pause";
 
 const POLL_CRON = "*/1 * * * *";
 const MAX_BODY_LENGTH = 50_000;
@@ -30,8 +31,46 @@ const buildInitialSinceDate = (): Date => {
   return since;
 };
 
+/**
+ * The few mailbox operations the poller uses. The real one is ImapFlow.
+ * Tests pass a fake, so no real mailbox is ever opened by a test.
+ * There is deliberately no operation here that changes the mailbox.
+ */
+export interface MailboxClient {
+  connect(): Promise<unknown>;
+  getMailboxLock(
+    path: string,
+    options?: { readOnly?: boolean }
+  ): Promise<{ release(): void }>;
+  search(
+    query: { since: Date },
+    options: { uid: boolean }
+  ): Promise<number[] | false | undefined>;
+  fetch(
+    range: number[] | string,
+    query: { source: true; uid: true }
+  ): AsyncIterable<{ uid: number; source?: Buffer }>;
+  logout(): Promise<unknown>;
+}
+
+export type MailboxClientFactory = (login: {
+  host: string;
+  port: number;
+  user: string;
+  pass: string;
+}) => MailboxClient;
+
+const createImapClient: MailboxClientFactory = (login) =>
+  new ImapFlow({
+    host: login.host,
+    port: login.port,
+    secure: true,
+    auth: { user: login.user, pass: login.pass },
+    logger: false,
+  });
+
 const fetchMessages = async (
-  client: ImapFlow,
+  client: MailboxClient,
   lastUid: number
 ): Promise<MailboxMessage[]> => {
   const messages: MailboxMessage[] = [];
@@ -102,11 +141,12 @@ const extractBodyText = (parsed: Awaited<ReturnType<typeof simpleParser>>): stri
   return "";
 };
 
+/** Returns true when the message was a new reply from a lead and was stored. */
 const processMailboxMessage = async (
   userId: string,
   mailboxEmail: string,
   message: MailboxMessage
-): Promise<number> => {
+): Promise<boolean> => {
   const parsed = await simpleParser(message.source);
   const fromRaw = firstAddress(parsed.from);
   const from = fromRaw
@@ -119,14 +159,14 @@ const processMailboxMessage = async (
       )
     : null;
 
-  if (!from) return message.uid;
+  if (!from) return false;
 
   if (from.email === normalizeEmail(mailboxEmail)) {
-    return message.uid;
+    return false;
   }
 
   const messageId = parsed.messageId?.trim();
-  if (!messageId) return message.uid;
+  if (!messageId) return false;
 
   const lead = await prisma.lead.findFirst({
     where: {
@@ -136,14 +176,15 @@ const processMailboxMessage = async (
     select: { id: true },
   });
 
-  if (!lead) return message.uid;
+  if (!lead) return false;
 
   const bodyText = truncate(extractBodyText(parsed), MAX_BODY_LENGTH);
 
-  if (!bodyText) return message.uid;
+  if (!bodyText) return false;
 
   const toRaw = firstAddress(parsed.to)?.address;
-  await saveInboundEmail({
+  const receivedAt = parsed.date ?? new Date();
+  const stored = await saveInboundEmail({
     userId,
     leadId: lead.id,
     messageId,
@@ -152,13 +193,25 @@ const processMailboxMessage = async (
     toEmail: toRaw ? normalizeEmail(toRaw) : undefined,
     subject: parsed.subject?.trim() || null,
     bodyText,
-    receivedAt: parsed.date ?? new Date(),
+    receivedAt,
   });
 
-  return message.uid;
+  if (stored) {
+    // The lead replied: stop the follow-ups. Every active sequence of this
+    // lead is paused, and stays paused until a person resumes it in the app.
+    // An email that arrived before a sequence was approved does not count.
+    await pauseActiveSequencesForLead(lead.id, "lead_replied", {
+      onlyIfStartedBefore: receivedAt,
+    });
+  }
+
+  return stored;
 };
 
-const pollUserMailbox = async (userId: string): Promise<void> => {
+export const pollUserMailbox = async (
+  userId: string,
+  createClient: MailboxClientFactory = createImapClient
+): Promise<void> => {
   const settings = await prisma.userSettings.findUnique({
     where: { userId },
     select: { smtpHost: true, smtpUsername: true },
@@ -187,39 +240,42 @@ const pollUserMailbox = async (userId: string): Promise<void> => {
     select: { lastUid: true },
   });
 
-  const client = new ImapFlow({
+  const client = createClient({
     host: imap.host,
     port: imap.port,
-    secure: true,
-    auth: {
-      user: settings.smtpUsername,
-      pass: password,
-    },
-    logger: false,
+    user: settings.smtpUsername,
+    pass: password,
   });
 
   let maxUid = syncState.lastUid;
 
   try {
     await client.connect();
-    const lock = await client.getMailboxLock("INBOX");
+    // Read-only: the poller can look at the inbox but cannot change it.
+    // It does not mark anything as read, move it, or delete it.
+    const lock = await client.getMailboxLock("INBOX", { readOnly: true });
 
     try {
       const messages = await fetchMessages(client, syncState.lastUid);
       messages.sort((a, b) => a.uid - b.uid);
-      console.log("messages", messages);
+
+      let storedCount = 0;
 
       for (const message of messages) {
-        const processedUid = await processMailboxMessage(
+        const stored = await processMailboxMessage(
           userId,
           settings.smtpUsername,
           message
         );
-        maxUid = Math.max(maxUid, processedUid);
+        if (stored) storedCount++;
+        maxUid = Math.max(maxUid, message.uid);
+      }
 
-        await client.messageFlagsAdd({ uid: message.uid }, ["\\Seen"], {
-          uid: true,
-        });
+      // Counts only. Never log a message, a subject or an address.
+      if (messages.length > 0) {
+        console.log(
+          `[LeadEmailReplies] user ${userId}: ${messages.length} message(s) checked, ${storedCount} lead reply(ies) stored`
+        );
       }
     } finally {
       lock.release();
@@ -275,5 +331,7 @@ export const pollInboundEmails = async (): Promise<void> => {
 
 export const startInboundEmailProcessor = (): void => {
   cron.schedule(POLL_CRON, pollInboundEmails);
-  console.log("[LeadEmailReplies] Inbound email processor started (every 5 min)");
+  console.log(
+    `[LeadEmailReplies] Inbound email processor started (cron "${POLL_CRON}", read-only)`
+  );
 };

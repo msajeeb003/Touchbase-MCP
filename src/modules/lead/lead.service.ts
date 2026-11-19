@@ -19,13 +19,23 @@ export const syncLeadStatusFromActiveSequences = async (
 import AppError from "../../shared/errors/AppError";
 import {
   BulkDeleteLeadsInput,
+  ClearDoNotContactInput,
   CreateLeadInput,
+  MarkDoNotContactInput,
   UpdateLeadInput,
 } from "./lead.validation";
 import {
   applyColumnMapping,
   resolveLeadCsvColumnMapping,
+  type LeadCsvField,
 } from "./csv-header-mapper";
+import {
+  blockedLeadFields,
+  clearLeadDoNotContact,
+  doNotContactFieldsForNewLead,
+  loadBlockedAddresses,
+  markLeadDoNotContact,
+} from "../../harness/do-not-contact";
 
 type LeadQuery = {
   page?: number;
@@ -46,6 +56,13 @@ const createLead = async (userId: string, payload: CreateLeadInput) => {
     }
   }
 
+  // A new lead whose email or phone is on the do-not-contact list is flagged at once.
+  const blockedFields = await doNotContactFieldsForNewLead(
+    userId,
+    payload.email,
+    payload.phone
+  );
+
   return prisma.lead.create({
     data: {
       userId,
@@ -57,6 +74,7 @@ const createLead = async (userId: string, payload: CreateLeadInput) => {
       company: payload.company ?? null,
       location: payload.location ?? null,
       status: payload.status ?? "Not Active",
+      ...blockedFields,
     } as Prisma.LeadUncheckedCreateInput,
   });
 };
@@ -160,6 +178,18 @@ const updateLead = async (
     throw new AppError(400, "Either email or phone is required for follow-up");
   }
 
+  // Changing a lead's email or phone to a blocked address flags the lead.
+  // This route can set the flag but never remove it.
+  if (
+    !existing.doNotContact &&
+    (payload.email !== undefined || payload.phone !== undefined)
+  ) {
+    Object.assign(
+      data,
+      await doNotContactFieldsForNewLead(userId, nextEmail, nextPhone)
+    );
+  }
+
   return prisma.lead.update({
     where: { id: leadId },
     data: data as Parameters<typeof prisma.lead.update>[0]["data"],
@@ -235,6 +265,23 @@ const importCSV = async (
 
   const columnMapping = await resolveLeadCsvColumnMapping(userId, records);
 
+  const rows = records.map((record) => applyColumnMapping(record, columnMapping));
+  const result = await importLeadRows(userId, rows);
+
+  return { ...result, columnMapping };
+};
+
+/**
+ * Saves rows that are already mapped to lead fields.
+ * Split out of importCSV so the same checks (duplicates, do-not-contact)
+ * apply to every way of importing leads.
+ */
+export const importLeadRows = async (
+  userId: string,
+  rows: Partial<Record<LeadCsvField, string>>[]
+): Promise<Omit<CsvImportResult, "columnMapping">> => {
+  const blockedAddresses = await loadBlockedAddresses(userId);
+
   const existingLeads = await prisma.lead.findMany({
     where: { userId },
     select: { email: true },
@@ -250,9 +297,9 @@ const importCSV = async (
   const validLeads: CreateLeadInput[] = [];
   const seenEmails = new Set<string>();
 
-  for (let i = 0; i < records.length; i++) {
+  for (let i = 0; i < rows.length; i++) {
     const rowNum = i + 2; // +2 for header row + 0-index
-    const row = applyColumnMapping(records[i], columnMapping);
+    const row = rows[i];
 
     if (!row.name) {
       errors.push({
@@ -331,6 +378,10 @@ const importCSV = async (
         company: lead.company ?? null,
         location: lead.location ?? null,
         status: lead.status ?? "Not Active",
+        // An address on the do-not-contact list stays blocked when it is imported again.
+        ...(blockedAddresses.has(lead.email, lead.phone)
+          ? blockedLeadFields()
+          : {}),
       })) as Prisma.LeadCreateManyInput[],
       skipDuplicates: true,
     });
@@ -338,12 +389,43 @@ const importCSV = async (
   }
 
   return {
-    total: records.length,
+    total: rows.length,
     success: successCount,
     failed: errors.length,
     errors,
-    columnMapping,
   };
+};
+
+/** A logged-in person marks a lead do-not-contact. */
+const markDoNotContact = async (
+  userId: string,
+  leadId: string,
+  payload: MarkDoNotContactInput
+) => {
+  const result = await markLeadDoNotContact({
+    userId,
+    leadId,
+    reason: payload.reason,
+    source: "user",
+  });
+
+  return {
+    lead: result.lead,
+    pausedSequenceIds: result.pausedSequenceIds,
+    cancelledDraftIds: result.cancelledDraftIds,
+  };
+};
+
+/**
+ * A logged-in person clears do-not-contact. This is the only way to clear it:
+ * no MCP tool and no automated path may call this.
+ */
+const clearDoNotContact = async (
+  userId: string,
+  leadId: string,
+  payload: ClearDoNotContactInput
+) => {
+  return clearLeadDoNotContact({ userId, leadId, reason: payload.reason });
 };
 
 export const LeadService = {
@@ -354,4 +436,6 @@ export const LeadService = {
   deleteLead,
   deleteManyLeads,
   importCSV,
+  markDoNotContact,
+  clearDoNotContact,
 };

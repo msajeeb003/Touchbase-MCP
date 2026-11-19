@@ -1,5 +1,6 @@
 import prisma from "../../shared/prisma";
 import { SEQUENCE_STEP_STATUS } from "../../shared/sequence-step";
+import { STEP_TYPE } from "../../shared/constants";
 import { syncLeadStatusFromActiveSequences } from "../lead/lead.service";
 
 interface RetellCallPayload {
@@ -31,6 +32,19 @@ const processCallEnded = async (call: RetellCallPayload) => {
 
   if (!stepId || !userId) {
     console.error("[Webhook] Missing stepId or userId in metadata");
+    return;
+  }
+
+  // This webhook may only touch a CALL step that belongs to the named user.
+  // The request is not signed, so without this check anyone who knew a step ID
+  // could mark an email or SMS step as sent or failed.
+  const step = await prisma.sequenceStep.findUnique({
+    where: { id: stepId },
+    select: { stepType: true, sequence: { select: { userId: true } } },
+  });
+
+  if (!step || step.stepType !== STEP_TYPE.CALL || step.sequence.userId !== userId) {
+    console.warn("[Webhook] Retell call_ended ignored: not a call step of this user");
     return;
   }
 

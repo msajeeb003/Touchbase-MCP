@@ -1,5 +1,6 @@
 import prisma from "../prisma";
 import { SettingsService } from "../../modules/settings/settings.service";
+import { type DeliveryMode, isMockMode } from "../../harness/switches";
 
 // ── TextMagic ───────────────────────────────────────────────────────
 
@@ -128,7 +129,13 @@ export const sendSms = async (
   userId: string,
   phone: string,
   text: string
-): Promise<void> => {
+): Promise<{ deliveryMode: DeliveryMode }> => {
+  // OUTBOUND_MODE=mock (the default): nothing leaves the server, and no
+  // provider key is read.
+  if (isMockMode()) {
+    return { deliveryMode: "mock" };
+  }
+
   const settings = await prisma.userSettings.findUnique({
     where: { userId },
     select: { smsProvider: true },
@@ -142,12 +149,14 @@ export const sendSms = async (
 
   if (provider === "textmagic") {
     const config = await getTextMagicConfig(userId);
-    return sendTextMagicSms(config, phone, text);
+    await sendTextMagicSms(config, phone, text);
+    return { deliveryMode: "live" };
   }
 
   if (provider === "twilio") {
     const config = await getTwilioConfig(userId);
-    return sendTwilioSms(config, phone, text);
+    await sendTwilioSms(config, phone, text);
+    return { deliveryMode: "live" };
   }
 
   throw new Error(`Unknown SMS provider: "${provider}"`);

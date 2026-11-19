@@ -25,6 +25,21 @@ export const createSequenceSchema = z.object({
 export const updateSequenceSchema = z.object({
   body: z.object({
     name: z.string().min(1).max(150).optional(),
+    // The app's "Edit sequence" dialog sends these three. They used to pass
+    // through unchecked; now each one is validated here and its owner is
+    // checked in the service.
+    leadId: z.string().uuid("Invalid Lead ID").optional(),
+    totalSteps: z
+      .number()
+      .int("Total steps must be a whole number")
+      .min(1, "Minimum 1 step")
+      .max(20, "Maximum 20 steps")
+      .optional(),
+    promptTemplateId: z
+      .string()
+      .uuid("Invalid Prompt Template ID")
+      .nullable()
+      .optional(),
     status: z
       .enum(SEQUENCE_STATUS_LIST as [string, ...string[]], {
         message: `Status must be one of: ${SEQUENCE_STATUS_LIST.join(", ")}`,

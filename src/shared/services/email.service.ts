@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer";
 import { SettingsService } from "../../modules/settings/settings.service";
+import { type DeliveryMode, isMockMode } from "../../harness/switches";
 
 interface EmailOptions {
   to: string;
@@ -53,7 +54,13 @@ const getSmtpConfig = async (userId: string): Promise<SmtpConfig> => {
 export const sendEmail = async (
   userId: string,
   options: EmailOptions
-): Promise<void> => {
+): Promise<{ deliveryMode: DeliveryMode }> => {
+  // OUTBOUND_MODE=mock (the default): nothing leaves the server, and the
+  // mailbox password is not even read.
+  if (isMockMode()) {
+    return { deliveryMode: "mock" };
+  }
+
   const config = await getSmtpConfig(userId);
   const transporter = nodemailer.createTransport({
     host: config.host,
@@ -71,4 +78,6 @@ export const sendEmail = async (
     subject: options.subject || "(No Subject)",
     text: options.text,
   });
+
+  return { deliveryMode: "live" };
 };
