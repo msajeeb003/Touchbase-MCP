@@ -6,10 +6,10 @@ The live app stays on Hetzner.
 
 ## What is in the repo for Vercel
 
-- `vercel.json`: install with npm and generate the database client. Nothing else: Vercel finds the Express app by itself in `src/app.ts` (its default export) and runs it as one function.
+- `vercel.json`: install with npm, generate the database client, compile TypeScript into `dist/` (no source maps). Vercel then finds the Express app in `dist/app.js` (its default export) and runs it as one function.
 - `public/`: the only folder Vercel serves as plain files (just a robots.txt).
 
-Vercel uses `src/app.ts`, not `src/server.ts`, so there is no `app.listen` and no background job on Vercel: the send job and the
+Vercel uses `dist/app.js` (from `src/app.ts`), not `server.js`, so there is no `app.listen` and no background job on Vercel: the send job and the
 reply check do not run there. In mock mode nothing is sent anyway.
 
 ## Steps
