@@ -1,46 +1,51 @@
 # Deploying a TEST copy of the backend on Vercel
 
-This is for a test copy (mock mode, test database), so claude.ai can be tried
-against a public HTTPS address without touching the live app on Hetzner.
-The live app stays on Hetzner.
+This is for a test copy (mock mode, its own test database), so claude.ai can be
+tried against a public HTTPS address without touching the live app on Hetzner.
+The live app and its database stay as they are.
 
 ## What is in the repo for Vercel
 
-- `vercel.json`: install with npm, generate the database client, compile TypeScript into `dist/` (no source maps). Vercel then finds the Express app in `dist/app.js` (its default export) and runs it as one function.
+- `vercel.json`: install with npm, then run `scripts/vercel-build.cjs`.
+- `scripts/vercel-build.cjs`: sets up the database tables (only when `MIGRATE_ON_BUILD=true`),
+  generates the database client, and compiles TypeScript into `dist/` (no source maps).
+  Vercel then finds the Express app in `dist/app.js` and runs it as one function.
 - `public/`: the only folder Vercel serves as plain files (just a robots.txt).
 
-Vercel uses `dist/app.js` (from `src/app.ts`), not `server.js`, so there is no `app.listen` and no background job on Vercel: the send job and the
-reply check do not run there. In mock mode nothing is sent anyway.
+Vercel runs `dist/app.js`, not `server.js`, so there is no `app.listen` and no
+background job there: the send job and the reply check do not run. In mock mode
+nothing is sent anyway.
 
 ## Steps
 
-1. **Create a test database:** a new Supabase project (empty). Copy its connection string
-   (the pooled one, port 6543, with `?pgbouncer=true&connection_limit=1` at the end).
-2. **Apply the migrations to it** from this computer, once:
-   `DATABASE_URL="<test connection string>" node node_modules/prisma/build/index.js migrate deploy`
-   (use the direct connection string, port 5432, for this step).
-3. **Create a new Vercel project** from this folder (`vercel` CLI, or import the GitHub repo
-   `msajeeb003/Touchbase-MCP`, branch `ai-harness-mcp`).
-4. **Set the environment variables** in Vercel → Project → Settings → Environment Variables:
+1. **Database:** in the Vercel backend project, open **Storage → Create Database → Neon**
+   (free), and connect it to this project (Production). Vercel then sets
+   `DATABASE_URL` (pooled, used by the app) and `DATABASE_URL_UNPOOLED` (direct, used to set up tables).
+2. **Settings:** in **Settings → Environment Variables**, add:
 
 | Name | Value |
 |---|---|
-| `DATABASE_URL` | the test database's pooled connection string |
-| `JWT_SECRET` | a new long random text (not the live one) |
-| `ENCRYPTION_KEY` | a new 64-character hex text (not the live one) |
+| `JWT_SECRET` | a new long random text, not the live one |
+| `ENCRYPTION_KEY` | a new 64-character hex text, not the live one |
 | `ENABLE_MCP` | `true` |
 | `MCP_PUBLIC` | `true` |
-| `MCP_PUBLIC_URL` | `https://<your-project>.vercel.app` (no slash at the end) |
+| `MCP_PUBLIC_URL` | `https://<your-backend-project>.vercel.app` (no slash at the end) |
+| `MIGRATE_ON_BUILD` | `true` (sets up the tables during each build) |
 | `OUTBOUND_MODE` | leave **unset** (mock: nothing is sent) |
 
-5. **Turn off Vercel's login wall** for this project (Settings → Deployment Protection),
+3. **Deployment Protection:** Settings → Deployment Protection → off for this project,
    otherwise Claude cannot reach `/mcp`.
-6. **Deploy**, then create a test account in the app (or with `POST /api/v1/auth/register`).
-7. **Connect Claude:** claude.ai → Settings → Connectors → Add custom connector →
-   `https://<your-project>.vercel.app/mcp` → sign in with the test account → Allow.
+4. **Redeploy** (Deployments → the latest → Redeploy). The build log should show
+   `[vercel-build] Setting up database tables` and the migrations being applied.
+5. **Frontend project:** set `VITE_BASE_URL` to `https://<your-backend-project>.vercel.app/api/v1`
+   and redeploy it. Without this, the test frontend talks to the live backend.
+6. **Test account:** register in the test frontend.
+7. **Claude:** claude.ai → Settings → Connectors → Add custom connector →
+   `https://<your-backend-project>.vercel.app/mcp` → sign in with the test account → Allow.
 
 ## Limits on Vercel (free plan)
 
 - No background jobs (sending, reply check). Fine for a test in mock mode.
 - The wrong-password limit and the rate limit are kept in memory, so each Vercel instance counts on its own.
-- Not verified: a real Vercel build. The files were checked locally (the compiled app loads); the first deploy is the real test.
+- Not verified yet: the app on Neon's pooled connection. If you see errors about
+  "prepared statement", tell the developer; the fix is a small connection setting.
