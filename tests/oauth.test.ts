@@ -486,6 +486,39 @@ test("Claude's way of identifying itself (a client metadata URL) works, and is c
   }
 });
 
+test("a key made for another server address is refused here (audience check)", async () => {
+  const customer = await makeCustomer("judy@example.com");
+  const keys = await signIn(customer.email);
+  assert.equal(await mcpStatus(keys.access_token), 200);
+
+  // The same key, but its sign-in was for a different MCP address.
+  await prisma.oAuthGrant.updateMany({ data: { resource: "https://another-server.example/mcp" } });
+  assert.equal(await mcpStatus(keys.access_token), 401);
+});
+
+test("a metadata URL inside a private network is refused before anything is fetched", async () => {
+  setMetadataFetcherForTests(null); // the real fetcher
+  const realFetch = globalThis.fetch;
+  const fetched: string[] = [];
+  globalThis.fetch = (async (input: unknown, init?: unknown) => {
+    const url = String(input);
+    if (url.startsWith(base)) return realFetch(input as string, init as RequestInit);
+    fetched.push(url);
+    return new Response(JSON.stringify({ client_id: url, redirect_uris: ["http://localhost/callback"] }), { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    const { challenge } = pkce();
+    for (const inside of ["https://127.0.0.1/meta.json", "https://10.0.0.5/meta.json", "https://169.254.169.254/latest/meta-data", "https://[::1]/meta.json"]) {
+      const res = await realFetch(authorizeUrl(inside, challenge));
+      assert.equal(res.status, 400, inside);
+    }
+    assert.deepEqual(fetched, [], "no request was made to a private address");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 // ── public mode ──────────────────────────────────────────────────────
 
 const rawRequest = (path: string, headers: Record<string, string>) =>
