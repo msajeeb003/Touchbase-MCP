@@ -373,6 +373,9 @@ test("sign-in page: wrong password, Cancel, a changed form, too many tries", asy
   assert.equal(page.headers.get("x-frame-options"), "DENY");
   assert.match(page.headers.get("content-security-policy") ?? "", /frame-ancestors 'none'/);
   assert.equal(page.headers.get("cache-control"), "no-store");
+  // "no-referrer" makes browsers submit the form with `Origin: null`, which the
+  // Origin check refuses; "same-origin" sends the real origin (found on Vercel).
+  assert.equal(page.headers.get("referrer-policy"), "same-origin");
   const request = hiddenRequest(await page.text());
 
   const wrong = await submit(request, { action: "allow", email: customer.email, password: "nope" });
@@ -532,6 +535,17 @@ const rawRequest = (path: string, headers: Record<string, string>) =>
     req.end(path === "/mcp" ? "{}" : undefined);
   });
 
+const rawFormPost = (path: string, headers: Record<string, string>) =>
+  new Promise<{ status: number; body: string }>((resolve, reject) => {
+    const req = http.request({ host: "127.0.0.1", port: app.port, path, method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", ...headers } }, (res) => {
+      let body = "";
+      res.on("data", (c) => (body += c));
+      res.on("end", () => resolve({ status: res.statusCode ?? 0, body }));
+    });
+    req.on("error", reject);
+    req.end("");
+  });
+
 test("public mode: answers through a proxy for the public address only, and only over https settings", async () => {
   const PUBLIC = "https://mcp.touchbase.test";
 
@@ -550,6 +564,15 @@ test("public mode: answers through a proxy for the public address only, and only
     assert.equal(metadata.authorization_endpoint, `${PUBLIC}/oauth/authorize`);
     const resource = JSON.parse((await rawRequest("/.well-known/oauth-protected-resource/mcp", { host: "mcp.touchbase.test" })).body);
     assert.equal(resource.resource, `${PUBLIC}/mcp`);
+
+    // Submitting the sign-in form: a browser sends the page's own origin
+    // (Referrer-Policy "same-origin"). That passes the Origin check and reaches
+    // the form handling (400 here, because the form is empty); `Origin: null`
+    // and other sites are refused before that.
+    const submitForm = (origin: string) => rawFormPost("/oauth/authorize", { host: "mcp.touchbase.test", origin });
+    assert.notEqual((await submitForm(PUBLIC)).status, 403, "the page's own origin passes");
+    assert.equal((await submitForm("null")).status, 403, "Origin: null is refused");
+    assert.equal((await submitForm("https://evil.example")).status, 403, "another site is refused");
   });
 
   // public mode is refused without an https address

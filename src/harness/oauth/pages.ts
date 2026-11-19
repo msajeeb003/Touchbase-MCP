@@ -112,13 +112,20 @@ export const errorPage = (message: string): string =>
      <p class="small">Close this window and try connecting again from the app. If it keeps happening, contact Touchbase support.</p>`
   );
 
-/** Headers for every sign-in page: never cached, never shown inside another site. */
+/**
+ * Headers for every sign-in page: never cached, never shown inside another site.
+ *
+ * Referrer-Policy is "same-origin", NOT "no-referrer": with "no-referrer" the
+ * browser sends `Origin: null` when the sign-in form is submitted, and the
+ * Origin check in front of /oauth refuses it ("Invalid Origin header: null").
+ * "same-origin" still never shares this page's address with other sites.
+ */
 export const PAGE_HEADERS: Record<string, string> = {
   "Content-Type": "text/html; charset=utf-8",
   "Cache-Control": "no-store",
   Pragma: "no-cache",
   "X-Frame-Options": "DENY",
-  "Referrer-Policy": "no-referrer",
+  "Referrer-Policy": "same-origin",
   "X-Content-Type-Options": "nosniff",
   "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'",
 };

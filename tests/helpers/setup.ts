@@ -27,6 +27,10 @@ export const assertTestDatabase = async (): Promise<void> => {
 export const resetDb = async (): Promise<void> => {
   await assertTestDatabase();
   await prisma.$executeRawUnsafe('TRUNCATE TABLE "users" CASCADE');
+  // Registered sign-in apps belong to no user, so the line above keeps them.
+  // Clear them too, or a saved app (for example a client metadata document
+  // cached by an earlier run) leaks into later tests.
+  await prisma.$executeRawUnsafe('TRUNCATE TABLE "oauth_clients" CASCADE');
 };
 
 export const makeUser = async () =>
