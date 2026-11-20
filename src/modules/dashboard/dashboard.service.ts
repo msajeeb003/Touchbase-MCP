@@ -32,7 +32,7 @@ const getDashboard = async (userId: string, query: DashboardQuery = {}) => {
     upcomingSteps,
   ] = await Promise.all([
     // --- Summary cards ---
-    prisma.lead.count({ where: { userId } }),
+    prisma.lead.count({ where: { userId, deletedAt: null } }),
 
     prisma.sequenceStep.count({
       where: {
@@ -75,7 +75,7 @@ const getDashboard = async (userId: string, query: DashboardQuery = {}) => {
     // --- Leads by followUpStage ---
     prisma.lead.groupBy({
       by: ["followUpStage"],
-      where: { userId },
+      where: { userId, deletedAt: null },
       _count: { id: true },
     }),
 
@@ -112,6 +112,7 @@ const getDashboard = async (userId: string, query: DashboardQuery = {}) => {
     prisma.lead.findMany({
       where: {
         userId,
+        deletedAt: null,
         createdAt: { gte: sinceDate },
       },
       select: { createdAt: true },

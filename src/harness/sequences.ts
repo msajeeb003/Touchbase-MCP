@@ -1,6 +1,6 @@
 import type { AgentRun, Prisma, SequenceStep } from "@prisma/client";
 import type { Actor } from "./actor";
-import { currentApprovalHash } from "./approval";
+import { computeApprovalHash, currentApprovalHash } from "./approval";
 import {
   assertDraft,
   assertEmailAndSmsOnly,
@@ -26,18 +26,30 @@ import { isLeadBlocked } from "./do-not-contact";
 import { HarnessError, type HarnessOutcome } from "./errors";
 import { LIMITS } from "./limits";
 import { pauseSequenceBySystem, syncLeadStatus } from "./pause";
-import { loadSendWindow, nextAllowedTime } from "./send-window";
-import { mcpAllowResume } from "./switches";
+import {
+  loadSendWindow,
+  nextAllowedTime,
+  planSendDates,
+  resolveSendWindow,
+  startOfLocalDay,
+} from "./send-window";
+import { outboundMode } from "./switches";
+import { requirePermission } from "./permissions";
+import { refreshRunAfterApproval } from "./runs/run.service";
 import { sendingReady, templateForStage } from "./templates";
 import { newestTranscript, transcriptsReadInRun } from "./transcripts";
 
 /**
  * AI harness: sequences and steps.
  *
- * The one rule above all others: nothing here can activate a sequence or send
- * a message. These functions make drafts, change drafts, and mark drafts
- * "awaiting approval". A person releases them in the Touchbase app.
- * Pausing, skipping and stopping only ever reduce sending, so they are allowed.
+ * These functions make drafts, change drafts, and mark drafts "awaiting
+ * approval". A person releases them in the Touchbase app. Pausing, skipping
+ * and stopping only ever reduce sending, so they are always allowed.
+ *
+ * Two functions start sending, and each works only while its workspace switch
+ * is on (Settings → Claude permissions, changed only by a logged-in person):
+ * activateSequences ("Claude can activate sequences") and resumeSequence
+ * ("Claude can resume sequences").
  */
 
 const DAY_MINUTES = 1440;
@@ -298,7 +310,7 @@ export const createDraftSequences = async (
   let created = 0;
 
   for (const leadId of leadIds) {
-    const lead = await db.lead.findFirst({ where: { id: leadId, userId: actor.userId } });
+    const lead = await db.lead.findFirst({ where: { id: leadId, userId: actor.userId, deletedAt: null } });
     if (!lead) {
       results.push({ lead_id: leadId, outcome: "skipped", reason: "lead_not_found" });
       continue;
@@ -1078,6 +1090,7 @@ const problemsOf = async (db: Db, sequence: SequenceWithSteps): Promise<string[]
   if (await isLeadBlocked(sequence.lead, db)) {
     problems.push("The lead is marked do-not-contact.");
   }
+  if (sequence.lead.deletedAt) problems.push("The lead was deleted.");
 
   return problems;
 };
@@ -1183,6 +1196,164 @@ export const requestApproval = async (
   };
 };
 
+// ── activate (only while "Claude can activate sequences" is on) ──────
+
+export const activateSequences = async (
+  actor: Actor,
+  db: Db,
+  input: { sequence_ids: string[] }
+): Promise<HarnessOutcome> => {
+  const settings = await requirePermission(db, actor.userId, "activate");
+
+  const ids = [...new Set(input.sequence_ids)];
+  if (ids.length < 1 || ids.length > LIMITS.LEADS_PER_BULK_CALL) {
+    throw new HarnessError(
+      "LIMIT_EXCEEDED",
+      `Pass 1 to ${LIMITS.LEADS_PER_BULK_CALL} sequences in one call.`,
+      "Call the tool again for the rest."
+    );
+  }
+
+  // No timezone, no activation: messages go out only inside the send window.
+  const sendWindow = resolveSendWindow(settings);
+  if (!sendWindow.ok) {
+    throw new HarnessError(
+      "VALIDATION",
+      sendWindow.message,
+      "Nothing was activated. Tell the user to set their timezone in Touchbase Settings (or, if they ask you to, set it with update_workspace_settings), then try again."
+    );
+  }
+  const window = sendWindow.window;
+  const ready = sendingReady(settings);
+
+  const now = new Date();
+  const cap = settings.claudeDailyActivationCap;
+  let activatedToday = await db.sequence.count({
+    where: {
+      userId: actor.userId,
+      approvedByActor: "claude",
+      approvedAt: { gte: startOfLocalDay(now, window.timeZone) },
+    },
+  });
+
+  const results: Record<string, unknown>[] = [];
+  const touched: { type: string; id: string; label?: string }[] = [];
+  let activated = 0;
+
+  for (const id of ids) {
+    const sequence = await db.sequence.findFirst({
+      where: { id, userId: actor.userId },
+      include: { steps: { orderBy: { stepOrder: "asc" } }, lead: true },
+    });
+    if (!sequence) {
+      results.push({ sequence_id: id, outcome: "rejected", problems: ["Sequence not found."] });
+      continue;
+    }
+    if (sequence.status === "active") {
+      results.push({ sequence_id: id, outcome: "already_active" });
+      continue;
+    }
+    if (sequence.status === "draft" && sequence.approvalStatus !== "awaiting_approval") {
+      results.push({
+        sequence_id: id,
+        outcome: "rejected",
+        problems: ["This draft has not passed request_approval. Call request_approval first."],
+      });
+      continue;
+    }
+
+    // The same checks as request_approval, run again now, plus sending setup.
+    const problems = await problemsOf(db, sequence);
+    if (sequence.steps.some((s) => s.stepType === "EMAIL") && !ready.email) {
+      problems.push("Email sending is not set up in Touchbase Settings.");
+    }
+    if (sequence.steps.some((s) => s.stepType === "SMS") && !ready.sms) {
+      problems.push("SMS sending is not set up in Touchbase Settings.");
+    }
+    const otherActive = await db.sequence.count({
+      where: { leadId: sequence.leadId, status: "active", id: { not: sequence.id } },
+    });
+    if (otherActive > 0) problems.push("This lead already has another running sequence.");
+    if (problems.length > 0) {
+      results.push({ sequence_id: id, outcome: "rejected", problems });
+      continue;
+    }
+
+    if (activatedToday >= cap) {
+      results.push({
+        sequence_id: id,
+        outcome: "rejected",
+        problems: [
+          `The daily limit of ${cap} sequences activated by Claude is reached. A person can still activate it in the Touchbase app.`,
+        ],
+      });
+      continue;
+    }
+
+    // The same release as a person's click in the app: real dates inside the
+    // send window, steps scheduled, and a record of exactly what was released.
+    const planned = planSendDates(sequence.steps, window, now);
+    for (const [stepId, scheduledAt] of planned) {
+      await db.sequenceStep.update({ where: { id: stepId }, data: { scheduledAt } });
+    }
+    await db.sequenceStep.updateMany({
+      where: { sequenceId: sequence.id, status: STEP_STATUS.DRAFT },
+      data: { status: STEP_STATUS.SCHEDULED },
+    });
+    await db.sequence.update({
+      where: { id: sequence.id },
+      data: {
+        status: "active",
+        approvalStatus: "approved",
+        approvedAt: now,
+        approvedByUserId: actor.userId,
+        approvedByActor: "claude",
+        approvedContentHash: computeApprovalHash({
+          leadEmail: sequence.lead.email,
+          leadPhone: sequence.lead.phone,
+          steps: sequence.steps,
+        }),
+        pausedReason: null,
+        pausedAt: null,
+      },
+    });
+    await syncLeadStatus(sequence.leadId, db);
+    if (sequence.runId) await refreshRunAfterApproval(sequence.runId, db);
+    await logHarnessActivity(db, {
+      sequenceId: sequence.id,
+      eventType: "sequence_status_changed",
+      meta: { from: "draft", to: "active", by: "claude" },
+    });
+
+    const first = [...planned.values()].sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
+    results.push({
+      sequence_id: id,
+      outcome: "activated",
+      first_send_at: first ? first.toISOString() : null,
+    });
+    touched.push({ type: "sequence", id: sequence.id, label: sequence.name });
+    activated++;
+    activatedToday++;
+  }
+
+  return {
+    result: {
+      results,
+      activated,
+      already_active: results.filter((r) => r.outcome === "already_active").length,
+      rejected: results.filter((r) => r.outcome === "rejected").length,
+      activations_left_today: Math.max(0, cap - activatedToday),
+      outbound_mode: outboundMode(),
+      what_happens_next:
+        outboundMode() === "mock"
+          ? "The sequences are running. This server is in mock mode: messages are recorded, not really sent."
+          : "The sequences are running. Messages go out inside the send window. Tell the user what was activated.",
+    },
+    summary: `Activated ${activated} sequence(s)`,
+    touched: touched.slice(0, 25),
+  };
+};
+
 // ── pause, resume, stop ──────────────────────────────────────────────
 
 export const pauseSequence = async (
@@ -1236,6 +1407,8 @@ export const resumeSequence = async (
   db: Db,
   input: { sequence_id: string }
 ): Promise<HarnessOutcome> => {
+  // Resuming starts sending again: only while the workspace switch is on.
+  await requirePermission(db, actor.userId, "resume");
   const sequence = await findSequence(db, actor.userId, input.sequence_id);
 
   const humanOnly = (message: string) =>
@@ -1245,9 +1418,6 @@ export const resumeSequence = async (
       "Tell the user to resume this sequence in the Touchbase app."
     );
 
-  if (!mcpAllowResume()) {
-    throw humanOnly("Resuming a sequence starts sending again, so only a person can do it.");
-  }
   if (sequence.status === "active") {
     return {
       result: { sequence_id: sequence.id, status: "active", was_already_active: true },
@@ -1258,6 +1428,7 @@ export const resumeSequence = async (
   if (sequence.status !== "paused") {
     throw humanOnly(`This sequence is "${sequence.status}". It was never released, or it has ended.`);
   }
+  if (sequence.lead.deletedAt) throw humanOnly("The lead of this sequence was deleted.");
   // Only a pause made by Claude or by the user's own pause button. A pause for
   // a reply, do-not-contact or a change after approval needs a person's eyes.
   if (sequence.pausedReason !== "paused_by_claude" && sequence.pausedReason !== "paused_by_user") {
@@ -1288,7 +1459,7 @@ export const resumeSequence = async (
   await logHarnessActivity(db, {
     sequenceId: sequence.id,
     eventType: "sequence_status_changed",
-    meta: { from: "paused", to: "active" },
+    meta: { from: "paused", to: "active", by: "claude" },
   });
 
   return {

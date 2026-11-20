@@ -221,7 +221,7 @@ test("the official MCP client signs in with OAuth and then uses the tools as tha
 
   const client = new Client({ name: "c", version: "1" });
   await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`), { authProvider: provider as any }));
-  assert.equal((await client.listTools()).tools.length, 37);
+  assert.equal((await client.listTools()).tools.length, 41);
   const started = await callTool(client, "start_run", { instruction: "Signed in with OAuth" });
   const found = await callTool(client, "search_leads", { run_id: started.data.run_id });
   await client.close();

@@ -9,7 +9,7 @@ import {
 
 const verifyLeadOwnership = async (userId: string, leadId: string) => {
   const lead = await prisma.lead.findFirst({
-    where: { id: leadId, userId },
+    where: { id: leadId, userId, deletedAt: null },
   });
 
   if (!lead) {

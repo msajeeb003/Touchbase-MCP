@@ -115,8 +115,9 @@ export const getWorkspaceProfileTool = defineTool({
   description:
     "Use this to sign messages correctly and to know what is ready: the sender's name, company and booking link, " +
     "whether email and SMS sending are set up, whether replies are being recorded, " +
-    "and the hours in which messages may go out. It returns no key, password or other secret, " +
-    "and no tool can change these settings: the user changes them in the Touchbase app.",
+    "the hours in which messages may go out, and which actions the user allows you (claude_permissions). " +
+    "It returns no key, password or other secret. Email and SMS setup is done by the user in the app, at setup_url. " +
+    "The permission switches can only be changed by the user in the app.",
   input: z.strictObject({ run_id: runIdOptional }),
   handler: (_input, { actor, db }) => getWorkspaceProfile(actor, db),
 });

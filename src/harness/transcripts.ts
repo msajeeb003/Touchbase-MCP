@@ -163,11 +163,15 @@ export const getLeadTranscript = async (
 export const listLeadReplies = async (
   actor: Actor,
   db: Db,
-  input: { lead_id: string; page?: number; page_size?: number }
+  input: { lead_id: string; channel?: "email" | "sms"; page?: number; page_size?: number }
 ): Promise<HarnessOutcome> => {
   const lead = await findLead(db, actor.userId, input.lead_id);
   const { page, size, skip } = pageOf(input, 20, 10);
-  const where = { userId: actor.userId, leadId: lead.id };
+  const where = {
+    userId: actor.userId,
+    leadId: lead.id,
+    ...(input.channel ? { channel: input.channel } : {}),
+  };
 
   const [replies, total] = await Promise.all([
     db.leadInboundEmail.findMany({
@@ -187,21 +191,26 @@ export const listLeadReplies = async (
       tracking_enabled: tracking,
       replies: replies.map((reply) => ({
         reply_id: reply.id,
+        channel: reply.channel,
         received_at: reply.receivedAt.toISOString(),
         truncated: reply.bodyText.length > LIMITS.REPLY_BODY_MAX,
         untrusted: {
           from_email: reply.fromEmail,
+          from_phone: reply.fromPhone,
           from_name: reply.fromName,
           subject: reply.subject,
           body_text: reply.bodyText.slice(0, LIMITS.REPLY_BODY_MAX),
         },
       })),
       ...pagination(page, size, total),
-      notes: tracking
-        ? ["Email replies only. SMS replies are not recorded by Touchbase."]
-        : [
-            "Reply tracking is switched off on this server: no new replies are being recorded. The lead may have replied without it showing here. Tell the user.",
-          ],
+      notes: [
+        ...(tracking
+          ? []
+          : [
+              "Email reply tracking is switched off on this server: no new email replies are being recorded. The lead may have replied by email without it showing here. Tell the user.",
+            ]),
+        "SMS replies are recorded for workspaces that send SMS with Twilio.",
+      ],
     },
     summary: `Listed ${replies.length} of ${total} repl${total === 1 ? "y" : "ies"} from ${lead.name}`,
     touched: [{ type: "lead", id: lead.id, label: lead.name }],

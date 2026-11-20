@@ -3,7 +3,7 @@ import AppError from "../../shared/errors/AppError";
 
 const verifyLeadOwnership = async (userId: string, leadId: string) => {
   const lead = await prisma.lead.findFirst({
-    where: { id: leadId, userId },
+    where: { id: leadId, userId, deletedAt: null },
     select: { id: true },
   });
 
@@ -33,7 +33,9 @@ const listByLead = async (
       select: {
         id: true,
         messageId: true,
+        channel: true,
         fromEmail: true,
+        fromPhone: true,
         fromName: true,
         toEmail: true,
         subject: true,

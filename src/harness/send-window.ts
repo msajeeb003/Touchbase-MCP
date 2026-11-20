@@ -305,3 +305,9 @@ export const planSendDates = (
 
   return planned;
 };
+
+/** The first instant of today in `timeZone`. The daily cap on Claude's activations counts from here. */
+export const startOfLocalDay = (now: Date, timeZone: string): Date => {
+  const p = localParts(now, timeZone);
+  return zonedTimeToUtc(p.year, p.month, p.day, 0, 0, timeZone);
+};

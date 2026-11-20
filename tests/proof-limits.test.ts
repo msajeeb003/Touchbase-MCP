@@ -38,7 +38,7 @@ test("text limits: accepted at the limit, refused one character above", async ()
   const cases: [string, string, (n: number) => Record<string, unknown>, number][] = [
     ["lead name", "update_lead", (n) => ({ lead_id: lead.id, name: x(n) }), 150],
     ["lead notes", "update_lead", (n) => ({ lead_id: lead.id, notes: x(n) }), LIMITS.NOTES_MAX],
-    ["do-not-contact reason", "mark_lead_do_not_contact", (n) => ({ lead_id: other.id, reason: x(n) }), LIMITS.REASON_MAX],
+    ["do-not-contact reason", "mark_lead_do_not_contact", (n) => ({ lead_id: other.id, reason: x(n), requested_by: "user" }), LIMITS.REASON_MAX],
     ["sequence name", "update_sequence", (n) => ({ sequence_id: draft, name: x(n) }), LIMITS.SEQUENCE_NAME_MAX],
     ["goal on a sequence", "update_sequence", (n) => ({ sequence_id: draft, goal: x(n) }), LIMITS.GOAL_NAME_MAX],
     ["goal label", "save_goal", (n) => ({ label: x(n) }), LIMITS.GOAL_NAME_MAX],

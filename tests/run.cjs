@@ -53,6 +53,7 @@ for (const name of [
   "MCP_PUBLIC",
   "MCP_PUBLIC_URL",
   "MCP_ALLOW_RESUME",
+  "APP_URL",
   "TOUCHBASE_MCP_TOKEN",
 ]) {
   env[name] = "";

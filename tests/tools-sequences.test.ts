@@ -476,7 +476,10 @@ test("editing tools work on drafts only, on email and SMS only, and on this user
     const res = await s.write(tool, args);
     assert.equal(res.data?.error?.code, "CHANNEL_NOT_SUPPORTED", `${tool} on a WhatsApp sequence`);
   }
+  // With the resume switch on, so the ownership check itself is what refuses.
+  await s.api("PATCH", "/settings", { claudeCanResume: true, claudeCanActivate: true, sendTimezone: "Europe/London" });
   for (const [tool, args] of [
+    ["activate_sequence", { sequence_ids: [theirs.id] }],
     ...edits(theirs.id, theirStep.id),
     ["request_approval", { sequence_ids: [theirs.id] }],
     ["pause_sequence", { sequence_id: theirs.id }],
@@ -724,14 +727,16 @@ test("skipping the last waiting step completes a running sequence", async () => 
   await s.close();
 });
 
-test("resume_sequence, when a server switches it on, still only resumes what a person approved", async () => {
+test("resume_sequence, when the workspace switch is on, still only resumes what a person approved", async () => {
   const s = await startSession(app.mcpUrl);
   const { sequenceId } = await readyDraft(s);
   await s.api("PATCH", "/settings", { sendTimezone: "Europe/London" });
   await s.api("PATCH", `/sequences/${sequenceId}`, { status: "active" });
   await s.write("pause_sequence", { sequence_id: sequenceId });
+  assert.equal((await s.write("resume_sequence", { sequence_id: sequenceId })).data.error.code, "HUMAN_ONLY", "off by default");
+  await s.api("PATCH", "/settings", { claudeCanResume: true });
 
-  await withEnv({ MCP_ALLOW_RESUME: "true" }, async () => {
+  await (async () => {
     // paused because the lead replied: needs a person
     await prisma.sequence.update({ where: { id: sequenceId }, data: { pausedReason: "lead_replied" } });
     assert.equal((await s.write("resume_sequence", { sequence_id: sequenceId })).data.error.code, "HUMAN_ONLY");
@@ -747,7 +752,7 @@ test("resume_sequence, when a server switches it on, still only resumes what a p
     assert.equal(resumed.isError, false, resumed.text);
     assert.equal((await seq(sequenceId)).status, "active");
     assert.equal((await s.write("resume_sequence", { sequence_id: sequenceId })).data.was_already_active, true);
-  });
+  })();
   await s.close();
 });
 

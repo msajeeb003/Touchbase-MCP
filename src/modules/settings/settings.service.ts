@@ -90,6 +90,12 @@ const SETTINGS_SELECT = {
   sendWindowEnd: true,
   sendOnWeekends: true,
   sendTimezone: true,
+  claudeCanActivate: true,
+  claudeCanResume: true,
+  claudeCanEditSettings: true,
+  claudeCanDeleteLeads: true,
+  claudeCanClearDoNotContact: true,
+  claudeDailyActivationCap: true,
   // fathomWebhookId / fathomWebhookSecret are intentionally never returned
   createdAt: true,
   updatedAt: true,

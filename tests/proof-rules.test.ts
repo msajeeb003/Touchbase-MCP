@@ -64,15 +64,15 @@ const releasedCount = async (userId: string) => ({
   }),
 });
 
-// ── rules 1 and 6, all 37 tools ──────────────────────────────────────
+// ── rules 1 and 6, all 41 tools ──────────────────────────────────────
 
-test("rules 1 and 6: all 37 tools are called; nothing is released, and planted text stays labelled", async () => {
+test("rules 1 and 6: all 41 tools are called with the switches off; nothing is released, and planted text stays labelled", async () => {
   const s = await startSession(app.mcpUrl);
   const world = await buildWorld(s.user.id, s.runId);
   const toolNames = (await s.client.listTools()).tools.map((tool) => tool.name).sort();
   const calls = callsFor(world, s.runId);
 
-  assert.equal(toolNames.length, 37);
+  assert.equal(toolNames.length, 41);
   assert.deepEqual(
     [...new Set(calls.map(([name]) => name))].sort(),
     toolNames,
@@ -183,6 +183,15 @@ test("rule 3: one user's tools cannot read or change another user's records", as
   const bobsWorld = await buildWorld(bob.id, bobsRun.id, "bob");
   const before = await snapshotOf(bob.id);
   const bobsIds = Object.values(bobsWorld).filter((v) => v !== bob.id);
+  // Alice allows Claude everything, so ownership is proved with every switch on.
+  await alice.api("PATCH", "/settings", {
+    sendTimezone: "Europe/London",
+    claudeCanActivate: true,
+    claudeCanResume: true,
+    claudeCanEditSettings: true,
+    claudeCanDeleteLeads: true,
+    claudeCanClearDoNotContact: true,
+  });
 
   const refused = new Set(["NOT_FOUND", "RUN_NOT_FOUND"]);
   const hasIds = (args: Record<string, unknown>) =>
@@ -230,7 +239,7 @@ test("rule 7: every write tool is called twice and the second call changes nothi
   const world = await buildWorld(s.user.id, s.runId);
   const tools = (await s.client.listTools()).tools;
   const writes = new Set(tools.filter((t) => t.annotations?.readOnlyHint === false).map((t) => t.name));
-  assert.equal(writes.size, 21);
+  assert.equal(writes.size, 25);
 
   const checked: string[] = [];
 
@@ -249,7 +258,7 @@ test("rule 7: every write tool is called twice and the second call changes nothi
     checked.push(name);
   }
 
-  assert.deepEqual(checked.sort(), [...writes].sort(), "all 21 write tools were called twice");
+  assert.deepEqual(checked.sort(), [...writes].sort(), "all 25 write tools were called twice");
 
   // No duplicate of anything was made along the way.
   assert.equal(await prisma.lead.count({ where: { userId: s.user.id, email: "new.person@example.com" } }), 1);
@@ -278,7 +287,7 @@ test("rule 4: a do-not-contact lead, and its address imported again, cannot be d
   await s.write("write_steps", { sequence_id: sequenceId, steps: [{ step_number: 1, subject: "Hello Rita", body: "Good to meet you." }] });
 
   // Claude marks the lead
-  assert.equal((await s.write("mark_lead_do_not_contact", { lead_id: leadId, reason: "Unsubscribed" })).isError, false);
+  assert.equal((await s.write("mark_lead_do_not_contact", { lead_id: leadId, reason: "Unsubscribed", requested_by: "lead" })).isError, false);
 
   // not approved
   const asked = await s.write("request_approval", { sequence_ids: [sequenceId] });
@@ -297,9 +306,14 @@ test("rule 4: a do-not-contact lead, and its address imported again, cannot be d
   // not cleared: no tool exists, and the REST endpoint refuses an access token
   const cleared = await apiClient(app.url, token)("POST", `/leads/${leadId}/do-not-contact/clear`, { reason: "Let me" });
   assert.equal(cleared.status, 401);
-  for (const tool of (await s.client.listTools()).tools) {
-    assert.doesNotMatch(`${tool.name} ${tool.description}`.toLowerCase(), /clears? do-not-contact for|remove the do-not-contact mark from a lead\b(?! mark)/);
-  }
+  // the clear tool: off by default, and refused for the lead's own opt-out even when on
+  assert.equal((await s.write("clear_do_not_contact", { lead_id: leadId, reason: "Let me" })).data.error.code, "HUMAN_ONLY");
+  await s.api("PATCH", "/settings", { claudeCanClearDoNotContact: true });
+  const optOut = await s.write("clear_do_not_contact", { lead_id: leadId, reason: "Let me" });
+  assert.equal(optOut.data.error.code, "HUMAN_ONLY");
+  assert.match(optOut.data.error.message, /asked not to be contacted/);
+  assert.equal((await prisma.lead.findUniqueOrThrow({ where: { id: leadId } })).doNotContact, true);
+  await s.api("PATCH", "/settings", { claudeCanClearDoNotContact: false });
   assert.equal((await s.write("update_lead", { lead_id: leadId, do_not_contact: false })).isError, true);
 
   // the lead is deleted, and the same address comes back three ways

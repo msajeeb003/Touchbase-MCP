@@ -61,13 +61,14 @@ export const listLeadRepliesTool = defineTool({
   kind: "read",
   run: "optional",
   description:
-    "Use this to check what a lead wrote back by email, newest first. " +
-    "Email replies only: SMS replies are not recorded. If tracking_enabled is false, " +
-    "replies are not being recorded on this server and the list may be incomplete. " +
+    "Use this to check what a lead wrote back, by email and by SMS, newest first. Each reply has a channel; " +
+    "pass channel to get only one kind. If tracking_enabled is false, email replies are not being recorded " +
+    "on this server and the list may be incomplete. " +
     UNTRUSTED_NOTE,
   input: z.strictObject({
     run_id: runIdOptional,
     lead_id: id("The lead."),
+    channel: z.enum(["email", "sms"]).optional().describe("Only replies of this channel."),
     page,
     page_size: pageSize(20),
   }),

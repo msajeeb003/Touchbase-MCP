@@ -48,7 +48,7 @@ test("the stdio server starts from any folder, lists the tools and runs one", as
     await client.connect(transport);
 
     const tools = (await client.listTools()).tools.map((tool) => tool.name);
-    assert.equal(tools.length, 37);
+    assert.equal(tools.length, 41);
     for (const name of ["start_run", "write_steps", "request_approval", "finish_run"]) {
       assert.ok(tools.includes(name), name);
     }
