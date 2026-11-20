@@ -95,7 +95,9 @@ OBJECTIVE: One sentence—goal of this call
 BACKGROUND: 2–4 sentences—lead context, prior messages, meeting notes from transcript if any
 KEY POINTS: 3–5 bullet lines—what to convey during the conversation
 QUESTIONS: 2–3 bullet lines—what to ask the lead
-CLOSING: One sentence—how to end or what next step to propose`;
+CLOSING: One sentence—how to end or what next step to propose
+
+${CALL_OUTPUT_RULES}`;
   } else {
     prompt += `\n\nIMPORTANT: Generate only the SMS text. Keep it concise (2-4 sentences max). No subject line.`;
   }
@@ -119,11 +121,50 @@ CLOSING: One sentence—how to end or what next step to propose`;
   return prompt;
 };
 
+/**
+ * Added after the call-section list in every AI call prompt. A saved prompt
+ * template is usually written for emails ("write ONE message", sign-offs), and
+ * without this the AI wrote an email first and the call sections after it.
+ * The whole text goes to the voice agent as its instructions.
+ */
+export const CALL_OUTPUT_RULES = `OUTPUT RULES FOR THIS CALL STEP (these override any format rules in the template above):
+- Reply with ONLY the seven sections above, in that order, starting with "GREETING:".
+- Do NOT write an email: no subject line, no "Hi …" letter opening, no sign-off such as "Best, Name", no "---" separators.
+- Plain text only: no markdown, no ** or # characters. Use "- " at the start of bullet lines.`;
+
+/**
+ * Cleans an AI call script before it is saved, in case the AI ignored the
+ * rules above: drops anything written before the GREETING section (for
+ * example an email) and removes markdown markers. A reply without a GREETING
+ * section is kept whole, so nothing the user may need is lost.
+ */
+export const cleanCallScript = (response: string): string => {
+  let text = response
+    .replace(/\r\n/g, "\n")
+    .replace(/\*\*/g, "")
+    .replace(/^[ \t]*#{1,6}[ \t]+/gm, "")
+    .replace(/^([ \t]*)\*[ \t]+/gm, "$1- ");
+
+  const greeting = text.search(/^[ \t]*GREETING[ \t]*:/im);
+  if (greeting > 0) text = text.slice(greeting);
+
+  return text
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+$/, ""))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+};
+
 export const parseAIResponse = (
   response: string,
   stepType: string
 ): { subject: string | null; content: string } => {
-  if (stepType === "SMS" || stepType === "WHATSAPP" || stepType === "CALL") {
+  if (stepType === "CALL") {
+    return { subject: null, content: cleanCallScript(response) };
+  }
+
+  if (stepType === "SMS" || stepType === "WHATSAPP") {
     return { subject: null, content: response.trim() };
   }
 

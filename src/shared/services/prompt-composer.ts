@@ -3,6 +3,7 @@ import type {
   ToneType,
   IntensityType,
 } from "../../modules/sequence/sequence.validation";
+import { CALL_OUTPUT_RULES } from "./prompt-builder";
 
 const GOAL_CONTEXT: Record<GoalType, string> = {
   "Book another call":  "Your goal is to get them on a call.",
@@ -91,7 +92,9 @@ OBJECTIVE: One sentence — goal of this call.
 BACKGROUND: 2-4 sentences — lead context, prior messages, meeting notes from transcript if any.
 KEY POINTS: 3-5 bullet lines — what to convey during the conversation.
 QUESTIONS: 2-3 bullet lines — what to ask the lead.
-CLOSING: One sentence — how to end or what next step to propose.`;
+CLOSING: One sentence — how to end or what next step to propose.
+
+${CALL_OUTPUT_RULES}`;
   }
   return `IMPORTANT: Generate only the SMS text. Keep it concise (2-4 sentences max). No subject line.`;
 };
