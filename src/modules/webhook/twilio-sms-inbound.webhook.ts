@@ -60,9 +60,7 @@ export const signatureMatches = (expected: string, given: string | undefined): b
   return a.length === b.length && timingSafeEqual(a, b);
 };
 
-type InboundOutcome =
-  | { ok: false; status: 403 | 400 }
-  | { ok: true; stored: boolean; optOut: boolean; leadId: string | null; pausedSequenceIds: string[] };
+type InboundOutcome = { ok: false; status: 403 | 400 } | { ok: true };
 
 /** Finds the workspace this message belongs to and checks the signature. */
 const findVerifiedUser = async (
@@ -143,28 +141,17 @@ export const processTwilioInboundSms = async (params: {
     }
   }
 
-  const optOut = isOptOutMessage(text);
-  let pausedSequenceIds: string[] = [];
-
-  if (optOut) {
+  if (isOptOutMessage(text)) {
     // The person asked to stop: their own opt-out, which no tool can clear.
     const reason = "The lead replied STOP by SMS";
     await blockPhoneAsOptOut(prisma, userId, from, reason);
     if (lead) {
-      const marked = await markLeadDoNotContact({
-        userId,
-        leadId: lead.id,
-        reason,
-        source: LEAD_OPT_OUT,
-      });
-      pausedSequenceIds = marked.pausedSequenceIds;
+      await markLeadDoNotContact({ userId, leadId: lead.id, reason, source: LEAD_OPT_OUT });
     }
   } else if (stored && lead) {
     // Same as an email reply: stop the follow-ups until a person looks.
-    pausedSequenceIds = await pauseActiveSequencesForLead(lead.id, "lead_replied", {
-      onlyIfStartedBefore: receivedAt,
-    });
+    await pauseActiveSequencesForLead(lead.id, "lead_replied", { onlyIfStartedBefore: receivedAt });
   }
 
-  return { ok: true, stored, optOut, leadId: lead?.id ?? null, pausedSequenceIds };
+  return { ok: true };
 };

@@ -12,7 +12,6 @@
  *   MCP_PUBLIC                 "true" to answer from the internet (needs an https MCP_PUBLIC_URL)
  *   MCP_PUBLIC_URL             this backend's public address, e.g. https://api.touchbase.example
  *   APP_URL                    the Touchbase app address, for the Settings link given to Claude
- *   (MCP_ALLOW_RESUME is retired: see the workspace switches in permissions.ts)
  */
 export type DeliveryMode = "live" | "mock";
 
@@ -62,12 +61,6 @@ export const mcpPublicUrl = (): string =>
  */
 export const mcpPublic = (): boolean =>
   mcpEnabled() && read("MCP_PUBLIC") === "true" && mcpPublicUrl().startsWith("https://");
-
-/*
- * MCP_ALLOW_RESUME is retired. Whether Claude may resume a sequence is now a
- * workspace switch ("Claude can resume sequences"), changed only by a
- * logged-in person in Settings. See src/harness/permissions.ts.
- */
 
 /**
  * APP_URL: the address of the Touchbase app (the frontend), for example

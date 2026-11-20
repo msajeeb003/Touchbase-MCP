@@ -1,4 +1,3 @@
-import type { Prisma } from "@prisma/client";
 import prisma from "../shared/prisma";
 import AppError from "../shared/errors/AppError";
 import type { Actor } from "./actor";
@@ -142,8 +141,8 @@ export const restoreLead = async (userId: string, leadId: string) => {
 };
 
 /** Removes leads deleted more than RESTORE_DAYS ago, for good. Do-not-contact rows stay. */
-export const purgeDeletedLeads = async (db: Db | typeof prisma = prisma): Promise<number> => {
-  const result = await (db as Prisma.TransactionClient).lead.deleteMany({
+export const purgeDeletedLeads = async (): Promise<number> => {
+  const result = await prisma.lead.deleteMany({
     where: { deletedAt: { lt: new Date(Date.now() - RESTORE_DAYS * DAY_MS) } },
   });
   return result.count;

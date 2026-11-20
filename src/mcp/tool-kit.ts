@@ -74,25 +74,17 @@ export const defineTool = <Schema extends z.ZodType>(
   tool: HarnessTool<Schema>
 ): HarnessTool<Schema> => tool;
 
-const NEXT_STEP_FOR_APP_ERROR: Record<HarnessErrorCode, string> = {
+/** The only codes an error from the existing services or Prisma is turned into. */
+type AppErrorCode = Extract<HarnessErrorCode, "NOT_FOUND" | "CONFLICT" | "VALIDATION" | "INTERNAL">;
+
+const NEXT_STEP_FOR_APP_ERROR: Record<AppErrorCode, string> = {
   NOT_FOUND: "Check the id. Use a search or list tool to find the right record.",
   CONFLICT: "Read the current state of the record, then decide whether a change is still needed.",
   VALIDATION: "Correct the input and call the tool again.",
-  RUN_NOT_FOUND: "Call start_run first.",
-  RUN_CLOSED: "Call start_run to begin a new run.",
-  LIMIT_EXCEEDED: "Use a smaller request.",
-  CHANNEL_NOT_SUPPORTED: "Use email or SMS.",
-  DO_NOT_CONTACT: "Leave this lead out and tell the user.",
-  NOT_A_DRAFT: "Only drafts can be changed.",
-  HUMAN_ONLY: "Tell the user to do this in the Touchbase app.",
-  MISSING_ADDRESS: "Tell the user the lead has no address for this channel.",
-  TRANSCRIPT_NOT_READ: "Read the lead's most recent transcript first.",
-  PLACEHOLDER_LEFT: "Write the real words in place of the placeholder.",
-  RATE_LIMITED: "Wait, then continue.",
   INTERNAL: "Try once more. If it fails again, tell the user and stop.",
 };
 
-const fromStatus = (status: number): HarnessErrorCode =>
+const fromStatus = (status: number): AppErrorCode =>
   status === 404 ? "NOT_FOUND" : status === 409 ? "CONFLICT" : status === 400 ? "VALIDATION" : "INTERNAL";
 
 /** Turns anything that was thrown into the one error shape Claude gets. */

@@ -1,3 +1,5 @@
+import AppError from "../shared/errors/AppError";
+
 /**
  * AI harness: the errors a tool can answer with.
  *
@@ -55,4 +57,20 @@ export type HarnessOutcome = {
   touched?: { type: string; id: string; label?: string }[];
   /** Small facts the server needs later (for example which transcript was read). */
   detail?: Record<string, unknown>;
+};
+
+/**
+ * For the app's REST routes: runs a harness call and turns a harness error into
+ * the API's usual error (404 for a missing record or run, otherwise 400).
+ */
+export const asRestCall = async <T>(work: () => Promise<T>): Promise<T> => {
+  try {
+    return await work();
+  } catch (error) {
+    if (isHarnessError(error)) {
+      const missing = error.code === "NOT_FOUND" || error.code === "RUN_NOT_FOUND";
+      throw new AppError(missing ? 404 : 400, error.code === "RUN_NOT_FOUND" ? "Run not found" : error.message);
+    }
+    throw error;
+  }
 };

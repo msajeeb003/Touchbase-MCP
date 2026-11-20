@@ -39,6 +39,12 @@ export const notFound = (what: string): HarnessError =>
     "Check the id. Use a search or list tool to find the right record."
   );
 
+export const invalid = (message: string, nextStep = "Correct the input and call the tool again."): HarnessError =>
+  new HarnessError("VALIDATION", message, nextStep);
+
+/** Trims a text; empty or missing becomes null. */
+export const clean = (value: string | null | undefined): string | null => (value ?? "").trim() || null;
+
 // ── pages ────────────────────────────────────────────────────────────
 
 export const pageOf = (
@@ -189,7 +195,7 @@ export const leadView = (lead: Lead, withNotes = false) => ({
 });
 
 /** A step's date means something only once a person has approved the sequence. */
-const HAS_REAL_DATE = new Set<string>([
+export const HAS_REAL_DATE = new Set<string>([
   STEP_STATUS.SCHEDULED,
   STEP_STATUS.SENDING,
   STEP_STATUS.CALLING,

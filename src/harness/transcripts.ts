@@ -75,7 +75,8 @@ export const transcriptsReadInRun = async (
   return result;
 };
 
-const newestFirst = (db: Db, userId: string, leadId: string) =>
+/** All of a lead's transcripts, the most recent first. */
+export const newestFirst = (db: Db, userId: string, leadId: string) =>
   db.leadTranscript.findMany({
     where: { userId, leadId },
     orderBy: [{ meetingDate: "desc" }, { createdAt: "desc" }],

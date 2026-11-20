@@ -1,11 +1,10 @@
 import { Response, Router } from "express";
 import auth, { AuthRequest } from "../../shared/middleware/auth";
-import AppError from "../../shared/errors/AppError";
 import catchAsync from "../../shared/utils/catchAsync";
 import sendResponse from "../../shared/utils/sendResponse";
 import prisma from "../../shared/prisma";
 import type { Actor } from "../actor";
-import { isHarnessError } from "../errors";
+import { asRestCall } from "../errors";
 import { listRecentActivity } from "../reports";
 
 /**
@@ -31,27 +30,22 @@ const list = catchAsync(async (req: AuthRequest, res: Response) => {
 
   const actor: Actor = { userId: req.user!.id, actor: "mcp", tokenId: "", clientName: null };
 
-  try {
-    const outcome = await listRecentActivity(actor, prisma, {
+  const outcome = await asRestCall(() =>
+    listRecentActivity(actor, prisma, {
       types,
       since: typeof req.query.since === "string" ? req.query.since : undefined,
       lead_id: typeof req.query.lead_id === "string" ? req.query.lead_id : undefined,
       page: asNumber(req.query.page),
       page_size: asNumber(req.query.page_size),
-    });
+    })
+  );
 
-    sendResponse(res, {
-      statusCode: 200,
-      success: true,
-      message: "Activity fetched successfully",
-      data: outcome.result,
-    });
-  } catch (error) {
-    if (isHarnessError(error)) {
-      throw new AppError(error.code === "NOT_FOUND" ? 404 : 400, error.message);
-    }
-    throw error;
-  }
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: "Activity fetched successfully",
+    data: outcome.result,
+  });
 });
 
 const router = Router();

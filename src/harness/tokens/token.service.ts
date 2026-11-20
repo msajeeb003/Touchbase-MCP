@@ -102,19 +102,14 @@ const listTokens = async (userId: string) =>
 const revokeToken = async (userId: string, tokenId: string) => {
   const existing = await prisma.apiToken.findFirst({
     where: { id: tokenId, userId },
-    select: { id: true, revokedAt: true },
+    select: PUBLIC_FIELDS,
   });
 
   if (!existing) {
     throw new AppError(404, "Token not found");
   }
 
-  if (existing.revokedAt) {
-    return prisma.apiToken.findUniqueOrThrow({
-      where: { id: tokenId },
-      select: PUBLIC_FIELDS,
-    });
-  }
+  if (existing.revokedAt) return existing;
 
   return prisma.apiToken.update({
     where: { id: tokenId },

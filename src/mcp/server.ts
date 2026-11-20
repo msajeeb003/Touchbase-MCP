@@ -20,9 +20,6 @@ import { TEMPLATE_TOOLS } from "./tools/templates";
 export const SERVER_NAME = "touchbase";
 export const SERVER_VERSION = "0.5.0";
 
-/** How many tools the finished server has (MCP_DESIGN.md, section 6). */
-const PLANNED_TOOL_COUNT = 41;
-
 /**
  * Every tool the server offers: 41 in all, 16 that only read and 25 that write.
  * Four of them, plus resume_sequence, act beyond drafts (activate, resume,
@@ -55,30 +52,17 @@ const RULES = [
   "`get_workspace_profile` shows which actions the user allows (`claude_permissions`). A tool whose switch is off answers HUMAN_ONLY: tell the user where to turn it on, or to do it in the app. Never ask for API keys or passwords; send the user to `setup_url` for email and SMS setup.",
 ];
 
-export const buildInstructions = (toolNames: string[]): string => {
-  const lines = [
-    "Touchbase: you help the user follow up with their leads by email and SMS.",
-    "",
-    ...RULES.map((rule, index) => `${index + 1}. ${rule}`),
-  ];
-
-  if (toolNames.length < PLANNED_TOOL_COUNT) {
-    lines.push(
-      "",
-      `NOTE: this server is not complete yet. Only these tools exist today: ${toolNames.join(", ")}. ` +
-        "Tools named above that are not in this list are not available yet. " +
-        "If the user asks for something that needs them, say that it is not available yet."
-    );
-  }
-
-  return lines.join("\n");
-};
+const INSTRUCTIONS = [
+  "Touchbase: you help the user follow up with their leads by email and SMS.",
+  "",
+  ...RULES.map((rule, index) => `${index + 1}. ${rule}`),
+].join("\n");
 
 export const buildMcpServer = (actor: Actor): McpServer => {
   const server = new McpServer(
     { name: SERVER_NAME, title: "Touchbase", version: SERVER_VERSION },
     {
-      instructions: buildInstructions(ALL_TOOLS.map((tool) => tool.name)),
+      instructions: INSTRUCTIONS,
       capabilities: { tools: {} },
     }
   );

@@ -5,10 +5,12 @@ import {
   assertDraft,
   assertEmailAndSmsOnly,
   channelOf,
+  clean,
   type Db,
   findLead,
   findPlaceholder,
   findSequence,
+  invalid,
   leadView,
   logHarnessActivity,
   notFound,
@@ -36,8 +38,8 @@ import {
 import { outboundMode } from "./switches";
 import { requirePermission } from "./permissions";
 import { refreshRunAfterApproval } from "./runs/run.service";
-import { sendingReady, templateForStage } from "./templates";
-import { newestTranscript, transcriptsReadInRun } from "./transcripts";
+import { findTemplate, sendingReady, templateForStage } from "./templates";
+import { newestFirst, newestTranscript, transcriptsReadInRun } from "./transcripts";
 
 /**
  * AI harness: sequences and steps.
@@ -54,10 +56,16 @@ import { newestTranscript, transcriptsReadInRun } from "./transcripts";
 
 const DAY_MINUTES = 1440;
 
-const invalid = (message: string, nextStep = "Correct the input and call the tool again.") =>
-  new HarnessError("VALIDATION", message, nextStep);
-
 const minutesOf = (delayDays: number): number => Math.round(delayDays * DAY_MINUTES);
+
+/** The ids without repeats, refused unless there are 1 to LEADS_PER_BULK_CALL of them. */
+const bulkIds = (ids: string[], what: string, nextStep: string): string[] => {
+  const unique = [...new Set(ids)];
+  if (unique.length < 1 || unique.length > LIMITS.LEADS_PER_BULK_CALL) {
+    throw new HarnessError("LIMIT_EXCEEDED", `Pass 1 to ${LIMITS.LEADS_PER_BULK_CALL} ${what} in one call.`, nextStep);
+  }
+  return unique;
+};
 
 const checkDelay = (delayDays: number, stepNumber: number) => {
   if (!Number.isFinite(delayDays) || delayDays < 0 || delayDays > LIMITS.DELAY_MAX_DAYS) {
@@ -90,12 +98,10 @@ const resetProvisionalDates = async (db: Db, sequenceId: string): Promise<void> 
 
   let cursor = Date.now();
   for (const step of steps) {
-    if (step.status !== STEP_STATUS.PENDING && step.status !== STEP_STATUS.DRAFT) {
+    const editable = step.status === STEP_STATUS.PENDING || step.status === STEP_STATUS.DRAFT;
+    if (!editable || step.delayMinutes === null) {
+      // already on its way, or an exact date: keep it
       cursor = Math.max(cursor, step.scheduledAt.getTime());
-      continue;
-    }
-    if (step.delayMinutes === null) {
-      cursor = Math.max(cursor, step.scheduledAt.getTime()); // an exact date: keep it
       continue;
     }
     cursor += Math.max(step.delayMinutes, 1) * 60_000;
@@ -258,14 +264,7 @@ export const createDraftSequences = async (
   },
   run: AgentRun
 ): Promise<HarnessOutcome> => {
-  const leadIds = [...new Set(input.lead_ids)];
-  if (leadIds.length < 1 || leadIds.length > LIMITS.LEADS_PER_BULK_CALL) {
-    throw new HarnessError(
-      "LIMIT_EXCEEDED",
-      `Pass 1 to ${LIMITS.LEADS_PER_BULK_CALL} leads in one call.`,
-      `Call the tool again for the next ${LIMITS.LEADS_PER_BULK_CALL} leads.`
-    );
-  }
+  const leadIds = bulkIds(input.lead_ids, "leads", `Call the tool again for the next ${LIMITS.LEADS_PER_BULK_CALL} leads.`);
   if (input.steps.length < 1 || input.steps.length > LIMITS.STEPS_PER_SEQUENCE) {
     throw new HarnessError(
       "LIMIT_EXCEEDED",
@@ -286,13 +285,7 @@ export const createDraftSequences = async (
   const delays = plan.map((step) => minutesOf(step.delay_days));
   checkTotalLength(delays);
 
-  if (input.template_id) {
-    const owned = await db.promptTemplate.findFirst({
-      where: { id: input.template_id, userId: actor.userId },
-      select: { id: true },
-    });
-    if (!owned) throw notFound("Template");
-  }
+  if (input.template_id) await findTemplate(db, actor.userId, input.template_id);
 
   const alreadyInRun = await db.sequence.count({ where: { runId: run.id } });
   if (alreadyInRun + leadIds.length > LIMITS.SEQUENCES_PER_RUN) {
@@ -421,11 +414,10 @@ export const updateSequence = async (
   assertDraft(sequence, "update_sequence");
   assertEmailAndSmsOnly(sequence.steps);
 
-  const text = (value: string | null | undefined) => (value ?? "").trim() || null;
   const next = {
     name: input.name !== undefined ? input.name.trim() : sequence.name,
-    goal: input.goal !== undefined ? text(input.goal) : sequence.goal,
-    tone: input.tone !== undefined ? text(input.tone) : sequence.tone,
+    goal: input.goal !== undefined ? clean(input.goal) : sequence.goal,
+    tone: input.tone !== undefined ? clean(input.tone) : sequence.tone,
   };
   if (!next.name) throw invalid("A sequence needs a name.");
 
@@ -519,10 +511,7 @@ export const writeSteps = async (
   }
 
   // Rule T: read the call before writing.
-  const transcripts = await db.leadTranscript.findMany({
-    where: { userId: actor.userId, leadId: sequence.leadId },
-    orderBy: [{ meetingDate: "desc" }, { createdAt: "desc" }],
-  });
+  const transcripts = await newestFirst(db, actor.userId, sequence.leadId);
   const hasTranscripts = transcripts.length > 0;
   const read = await transcriptsReadInRun(db, run.id, transcripts);
 
@@ -1100,14 +1089,7 @@ export const requestApproval = async (
   db: Db,
   input: { sequence_ids: string[]; note?: string }
 ): Promise<HarnessOutcome> => {
-  const ids = [...new Set(input.sequence_ids)];
-  if (ids.length < 1 || ids.length > LIMITS.LEADS_PER_BULK_CALL) {
-    throw new HarnessError(
-      "LIMIT_EXCEEDED",
-      `Pass 1 to ${LIMITS.LEADS_PER_BULK_CALL} sequences in one call.`,
-      "Call the tool again for the rest."
-    );
-  }
+  const ids = bulkIds(input.sequence_ids, "sequences", "Call the tool again for the rest.");
 
   const results: Record<string, unknown>[] = [];
   const touched: { type: string; id: string; label?: string }[] = [];
@@ -1205,14 +1187,7 @@ export const activateSequences = async (
 ): Promise<HarnessOutcome> => {
   const settings = await requirePermission(db, actor.userId, "activate");
 
-  const ids = [...new Set(input.sequence_ids)];
-  if (ids.length < 1 || ids.length > LIMITS.LEADS_PER_BULK_CALL) {
-    throw new HarnessError(
-      "LIMIT_EXCEEDED",
-      `Pass 1 to ${LIMITS.LEADS_PER_BULK_CALL} sequences in one call.`,
-      "Call the tool again for the rest."
-    );
-  }
+  const ids = bulkIds(input.sequence_ids, "sequences", "Call the tool again for the rest.");
 
   // No timezone, no activation: messages go out only inside the send window.
   const sendWindow = resolveSendWindow(settings);

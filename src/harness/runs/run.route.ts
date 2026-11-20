@@ -3,7 +3,7 @@ import auth, { AuthRequest } from "../../shared/middleware/auth";
 import AppError from "../../shared/errors/AppError";
 import catchAsync from "../../shared/utils/catchAsync";
 import sendResponse from "../../shared/utils/sendResponse";
-import { isHarnessError } from "../errors";
+import { asRestCall } from "../errors";
 import {
   getRun,
   getRunEvents,
@@ -25,28 +25,6 @@ import {
 
 const STATUSES = new Set<string>(Object.values(RUN_STATUS));
 
-const HTTP_STATUS: Record<string, number> = {
-  RUN_NOT_FOUND: 404,
-  NOT_FOUND: 404,
-  VALIDATION: 400,
-  LIMIT_EXCEEDED: 400,
-};
-
-/** Runs the service call and turns a harness error into the API's usual error. */
-const rest = async <T>(work: () => Promise<T>): Promise<T> => {
-  try {
-    return await work();
-  } catch (error) {
-    if (isHarnessError(error)) {
-      throw new AppError(
-        HTTP_STATUS[error.code] ?? 400,
-        error.code === "RUN_NOT_FOUND" ? "Run not found" : error.message
-      );
-    }
-    throw error;
-  }
-};
-
 const numberFrom = (value: unknown): number | undefined => {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
@@ -58,7 +36,7 @@ const list = catchAsync(async (req: AuthRequest, res: Response) => {
     throw new AppError(400, `Status must be one of: ${[...STATUSES].join(", ")}`);
   }
 
-  const result = await rest(() =>
+  const result = await asRestCall(() =>
     listRuns(req.user!.id, {
       status,
       page: numberFrom(req.query.page),
@@ -78,7 +56,7 @@ const detail = catchAsync(async (req: AuthRequest, res: Response) => {
   const userId = req.user!.id;
   const runId = req.params.id as string;
 
-  const result = await rest(async () => {
+  const result = await asRestCall(async () => {
     const run = await getRun(userId, runId);
     const events = await getRunEvents(userId, runId, { limit: 200 });
     const sequences = await getRunSequences(userId, runId, {
@@ -98,7 +76,7 @@ const detail = catchAsync(async (req: AuthRequest, res: Response) => {
 });
 
 const events = catchAsync(async (req: AuthRequest, res: Response) => {
-  const result = await rest(() =>
+  const result = await asRestCall(() =>
     getRunEvents(req.user!.id, req.params.id as string, {
       after: numberFrom(req.query.after),
       limit: numberFrom(req.query.limit) ?? 200,
@@ -114,7 +92,7 @@ const events = catchAsync(async (req: AuthRequest, res: Response) => {
 });
 
 const sequences = catchAsync(async (req: AuthRequest, res: Response) => {
-  const result = await rest(() =>
+  const result = await asRestCall(() =>
     getRunSequences(req.user!.id, req.params.id as string, {
       page: numberFrom(req.query.page),
       limit: numberFrom(req.query.limit),

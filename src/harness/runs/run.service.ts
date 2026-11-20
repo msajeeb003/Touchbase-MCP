@@ -1,6 +1,7 @@
 import type { AgentRun, AgentRunEvent, Prisma } from "@prisma/client";
 import prisma from "../../shared/prisma";
 import type { Actor } from "../actor";
+import { basedOnOf, channelOf, delayDaysOf, HAS_REAL_DATE, iso, writtenWithoutTranscript } from "../common";
 import { HarnessError } from "../errors";
 import { LIMITS, limitsForClaude } from "../limits";
 import { loadSendWindow } from "../send-window";
@@ -340,10 +341,6 @@ const emptyCounts = (): RunCounts => ({
   drafts_with_no_call_transcript: 0,
 });
 
-/** A sequence was written without a call transcript when no step is based on one. */
-const writtenWithoutTranscript = (bases: (string | null)[]): boolean =>
-  bases.includes("notes_and_stage") && !bases.includes("transcript");
-
 const countsForRuns = async (
   userId: string,
   runIds: string[],
@@ -386,19 +383,13 @@ const countsForRuns = async (
       if (row.status === "sent") counts.steps_sent += row.count;
       if (row.status === "failed") counts.steps_failed += row.count;
     }
-    if (
-      sequence.status === "draft" &&
-      writtenWithoutTranscript(rows.map((row) => row.basis))
-    ) {
+    if (sequence.status === "draft" && writtenWithoutTranscript(rows)) {
       counts.drafts_with_no_call_transcript++;
     }
   }
 
   return result;
 };
-
-const iso = (date: Date | null | undefined): string | null =>
-  date ? date.toISOString() : null;
 
 export const serializeRun = (run: AgentRun, counts?: RunCounts) => ({
   run_id: run.id,
@@ -527,16 +518,6 @@ export const getRunEvents = async (
   };
 };
 
-const CHANNEL: Record<string, string> = {
-  EMAIL: "email",
-  SMS: "sms",
-  WHATSAPP: "whatsapp",
-  CALL: "call",
-};
-
-/** A step's date means something only once the sequence has been approved. */
-const HAS_REAL_DATE = new Set(["scheduled", "sending", "calling", "sent", "failed", "skipped"]);
-
 /**
  * Sequences of a run with their steps and LIVE status.
  *
@@ -605,9 +586,7 @@ export const getRunSequences = async (
   const transcriptById = new Map(transcripts.map((t) => [t.id, t]));
 
   const items = sequences.map((sequence) => {
-    const noCallTranscript = writtenWithoutTranscript(
-      sequence.steps.map((step) => step.basis)
-    );
+    const noCallTranscript = writtenWithoutTranscript(sequence.steps);
 
     return {
       sequence_id: sequence.id,
@@ -627,19 +606,14 @@ export const getRunSequences = async (
         untrusted: { name: sequence.lead.name, company: sequence.lead.company },
       },
       steps: sequence.steps.map((step) => {
-        const ids = Array.isArray(step.basedOnTranscriptIds)
-          ? step.basedOnTranscriptIds.filter((id): id is string => typeof id === "string")
-          : [];
+        const ids = basedOnOf(step).transcript_ids;
 
         return {
           step_id: step.id,
           step_number: step.stepOrder,
-          channel: CHANNEL[step.stepType] ?? step.stepType.toLowerCase(),
+          channel: channelOf(step.stepType),
           status: step.status,
-          delay_days:
-            step.delayMinutes === null
-              ? null
-              : Math.round((step.delayMinutes / 1440) * 100) / 100,
+          delay_days: delayDaysOf(step.delayMinutes),
           scheduled_for: HAS_REAL_DATE.has(step.status) ? iso(step.scheduledAt) : null,
           sent_at: iso(step.sentAt),
           delivery_mode: step.deliveryMode,

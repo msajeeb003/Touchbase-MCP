@@ -249,12 +249,6 @@ export const listRecentActivity = async (
       : [],
   ]);
 
-  const leadOf = (touched: unknown): string | null => {
-    if (!Array.isArray(touched)) return null;
-    const lead = touched.find((t) => t && typeof t === "object" && (t as { type?: string }).type === "lead");
-    return lead ? String((lead as { id: string }).id) : null;
-  };
-
   const events = [
     ...activities.map((a) => {
       const meta = (a.meta ?? {}) as Record<string, unknown>;
@@ -286,10 +280,10 @@ export const listRecentActivity = async (
       // A change Claude made "without effect" (repeat call) is not shown.
       .filter((e) => !/nothing was changed/i.test(e.summary))
       .map((e) => {
-        const leadId = leadOf(e.touched);
         const touchedLead = Array.isArray(e.touched)
-          ? (e.touched as { type?: string; label?: string }[]).find((t) => t?.type === "lead")
+          ? (e.touched as { type?: string; id?: string; label?: string }[]).find((t) => t?.type === "lead")
           : undefined;
+        const leadId = touchedLead ? String(touchedLead.id) : null;
         return {
           at: e.createdAt.toISOString(),
           type: RUN_EVENT_TYPES[e.toolName],

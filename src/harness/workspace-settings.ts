@@ -1,5 +1,5 @@
 import type { Actor } from "./actor";
-import type { Db } from "./common";
+import { clean, type Db } from "./common";
 import { HarnessError, type HarnessOutcome } from "./errors";
 import { requirePermission } from "./permissions";
 import {
@@ -59,12 +59,6 @@ export const isHttpsUrl = (value: string): boolean => {
   } catch {
     return false;
   }
-};
-
-const clean = (value: string | null | undefined): string | null => {
-  if (value === null || value === undefined) return null;
-  const trimmed = value.trim();
-  return trimmed === "" ? null : trimmed;
 };
 
 export const updateWorkspaceSettings = async (

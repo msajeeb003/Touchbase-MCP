@@ -27,7 +27,7 @@ const templateView = (template: PromptTemplate, withText: boolean) => ({
   ...(withText ? { prompt_text: template.promptText } : {}),
 });
 
-const findTemplate = async (db: Db, userId: string, templateId: string) => {
+export const findTemplate = async (db: Db, userId: string, templateId: string) => {
   const template = await db.promptTemplate.findFirst({ where: { id: templateId, userId } });
   if (!template) throw notFound("Template");
   return template;
@@ -265,16 +265,7 @@ export const sendingReady = (s: Settings) => {
 export const getWorkspaceProfile = async (actor: Actor, db: Db): Promise<HarnessOutcome> => {
   const s = await db.userSettings.findUnique({ where: { userId: actor.userId } });
   const { email: emailReady, sms: smsReady } = sendingReady(s);
-  const sendWindow = resolveSendWindow(
-    s
-      ? {
-          sendWindowStart: s.sendWindowStart,
-          sendWindowEnd: s.sendWindowEnd,
-          sendOnWeekends: s.sendOnWeekends,
-          sendTimezone: s.sendTimezone,
-        }
-      : null
-  );
+  const sendWindow = resolveSendWindow(s);
 
   const notes: string[] = [];
   if (!emailReady) notes.push("Email sending is not set up in Settings: approved email steps would fail.");

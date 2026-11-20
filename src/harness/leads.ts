@@ -1,6 +1,6 @@
 import type { Lead, Prisma } from "@prisma/client";
 import type { Actor } from "./actor";
-import { type Db, findLead, leadView, pageOf, pagination } from "./common";
+import { clean, type Db, findLead, invalid, leadView, pageOf, pagination } from "./common";
 import {
   doNotContactFieldsForNewLead,
   loadBlockedAddresses,
@@ -248,13 +248,16 @@ type LeadFields = {
   notes?: string | null;
 };
 
-const clean = (value: string | null | undefined): string | null => {
-  const text = (value ?? "").trim();
-  return text ? text : null;
-};
-
-const invalid = (message: string, nextStep = "Correct the value and call the tool again.") =>
-  new HarnessError("VALIDATION", message, nextStep);
+/** A new lead's fields, trimmed, in database names. */
+const cleanLead = (input: LeadFields) => ({
+  name: clean(input.name),
+  email: clean(input.email),
+  phone: clean(input.phone),
+  notes: clean(input.notes),
+  company: clean(input.company),
+  location: clean(input.location),
+  followUpStage: clean(input.follow_up_stage) ?? "New",
+});
 
 /** Checks one lead's fields. Returns the problem as text, or null when they are fine. */
 const problemWith = (fields: {
@@ -309,12 +312,7 @@ export const createLead = async (
   db: Db,
   input: LeadFields & { name: string }
 ): Promise<HarnessOutcome> => {
-  const fields = {
-    name: clean(input.name),
-    email: clean(input.email),
-    phone: clean(input.phone),
-    notes: clean(input.notes),
-  };
+  const fields = cleanLead(input);
   const problem = problemWith(fields);
   if (problem) throw invalid(problem);
 
@@ -341,13 +339,8 @@ export const createLead = async (
   const lead = await db.lead.create({
     data: {
       userId: actor.userId,
+      ...fields,
       name: fields.name as string,
-      email: fields.email,
-      phone: fields.phone,
-      notes: fields.notes,
-      company: clean(input.company),
-      location: clean(input.location),
-      followUpStage: clean(input.follow_up_stage) ?? "New",
       ...(await doNotContactFieldsForNewLead(actor.userId, fields.email, fields.phone, db)),
     },
   });
@@ -481,12 +474,7 @@ export const importLeads = async (
 
   for (let index = 0; index < input.rows.length; index++) {
     const row = input.rows[index];
-    const fields = {
-      name: clean(row.name),
-      email: clean(row.email),
-      phone: clean(row.phone),
-      notes: clean(row.notes),
-    };
+    const fields = cleanLead(row);
     const problem = problemWith(fields);
     if (problem) {
       invalidRows.push({ row: index + 1, reason: problem });
@@ -508,13 +496,8 @@ export const importLeads = async (
     const lead = await db.lead.create({
       data: {
         userId: actor.userId,
+        ...fields,
         name: fields.name as string,
-        email: fields.email,
-        phone: fields.phone,
-        notes: fields.notes,
-        company: clean(row.company),
-        location: clean(row.location),
-        followUpStage: clean(row.follow_up_stage) ?? "New",
         ...(isBlocked ? blockedLeadFields() : {}),
       },
       select: { id: true },
