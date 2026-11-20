@@ -35,4 +35,8 @@ export const PERMISSIONS_TEXT = [
   "Pause or stop follow-up sequences",
 ];
 
-export const CANNOT_TEXT = "It cannot send any message or approve anything. You stay in control in Touchbase.";
+// True whatever the workspace switches say: with every switch off (the
+// default) Claude can only prepare drafts; each extra power is a switch the
+// person turns on themselves in Settings.
+export const CANNOT_TEXT =
+  "It cannot send any message or approve anything unless you turn that on yourself in Touchbase Settings. You stay in control in Touchbase.";

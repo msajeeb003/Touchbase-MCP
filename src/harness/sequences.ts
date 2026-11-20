@@ -35,7 +35,7 @@ import {
   resolveSendWindow,
   startOfLocalDay,
 } from "./send-window";
-import { outboundMode } from "./switches";
+import { appUrl, outboundMode } from "./switches";
 import { requirePermission } from "./permissions";
 import { refreshRunAfterApproval } from "./runs/run.service";
 import { findTemplate, sendingReady, templateForStage } from "./templates";
@@ -1084,10 +1084,15 @@ const problemsOf = async (db: Db, sequence: SequenceWithSteps): Promise<string[]
   return problems;
 };
 
+/** The app page where a person reviews drafts, narrowed to one run when known. */
+export const reviewPathFor = (runId: string | null): string =>
+  runId ? `/dashboard/review?run=${encodeURIComponent(runId)}` : "/dashboard/review";
+
 export const requestApproval = async (
   actor: Actor,
   db: Db,
-  input: { sequence_ids: string[]; note?: string }
+  input: { sequence_ids: string[]; note?: string },
+  runId: string | null = null
 ): Promise<HarnessOutcome> => {
   const ids = bulkIds(input.sequence_ids, "sequences", "Call the tool again for the rest.");
 
@@ -1169,7 +1174,10 @@ export const requestApproval = async (
       awaiting_approval: accepted,
       rejected: results.filter((r) => r.outcome === "rejected").length,
       warnings,
-      review_path: null,
+      // Where the person reviews these drafts in the app: the Review Queue,
+      // narrowed to this run. review_url is the full link when APP_URL is set.
+      review_path: reviewPathFor(runId),
+      review_url: appUrl() ? `${appUrl()}${reviewPathFor(runId)}` : null,
       what_happens_next:
         "Nothing is sent yet. A person must open each draft in the Touchbase app and activate it. Tell the user the drafts are ready for their review.",
     },

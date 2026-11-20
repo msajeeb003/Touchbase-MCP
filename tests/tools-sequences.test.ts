@@ -159,6 +159,9 @@ test("from an instruction to drafts awaiting approval, then a person's release",
   assert.equal(asked.isError, false, asked.text);
   assert.deepEqual(asked.data.results.map((r: any) => r.outcome), ["awaiting_approval", "awaiting_approval"]);
   assert.ok(asked.data.warnings.some((w: string) => /timezone/i.test(w)), "no timezone yet: Claude is warned");
+  // Claude can point the user at the review page for exactly this run.
+  assert.equal(asked.data.review_path, `/dashboard/review?run=${s.runId}`);
+  assert.equal(asked.data.review_url, null, "no APP_URL in tests: no full link");
 
   const finished = await s.write("finish_run", { summary: "Two drafts are ready for your review." });
   assert.equal(finished.data.status, "awaiting_approval");

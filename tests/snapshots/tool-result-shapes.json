@@ -387,7 +387,8 @@
         "sequence_id": "string"
       }
     ],
-    "review_path": "null",
+    "review_path": "string",
+    "review_url": "null",
     "warnings": [
       "string"
     ],

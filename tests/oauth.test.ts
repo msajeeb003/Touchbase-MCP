@@ -208,7 +208,7 @@ test("the official MCP client signs in with OAuth and then uses the tools as tha
   const page = await fetch(authUrl);
   const html = await page.text();
   assert.match(html, /Claude \(test\)<\/span> wants to use your Touchbase account/);
-  assert.match(html, /cannot send any message or approve anything/);
+  assert.match(html, /cannot send any message or approve anything unless you turn that on yourself/);
   const allowed = await submit(hiddenRequest(html), { action: "allow", email: customer.email, password: PASSWORD });
   const back = new URL(allowed.headers.get("location") as string);
   assert.equal(back.origin + back.pathname, CALLBACK);

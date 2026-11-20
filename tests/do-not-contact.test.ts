@@ -359,3 +359,24 @@ test("an address cleared by a person can be blocked again", async () => {
   assert.equal(rows[0].source, "mcp");
   assert.equal((await isBlocked(user.id, "again@example.com", null)).blocked, true);
 });
+
+test("a lead's own opt-out (STOP, unsubscribe) cannot be cleared, not even by a logged-in person", async () => {
+  const user = await makeUser();
+  const api = apiClient(app.url, tokenFor(user));
+  const lead = await makeLead(user.id, { email: "stop@example.com", phone: "+15550100009" });
+  await markLeadDoNotContact({
+    userId: user.id,
+    leadId: lead.id,
+    reason: "Replied STOP",
+    source: "lead_opt_out",
+  });
+
+  const res = await api("POST", `/leads/${lead.id}/do-not-contact/clear`, { reason: "They said it's fine" });
+
+  assert.equal(res.status, 409);
+  assert.match(res.body.message, /opted out themselves/);
+  const after = await prisma.lead.findUniqueOrThrow({ where: { id: lead.id } });
+  assert.equal(after.doNotContact, true);
+  assert.equal(after.doNotContactSource, "lead_opt_out");
+  assert.equal((await isBlocked(user.id, "stop@example.com", "+15550100009")).blocked, true);
+});

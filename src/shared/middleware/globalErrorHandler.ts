@@ -4,7 +4,7 @@ import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
 import config from "../../config";
 import AppError from "../errors/AppError";
 
-const globalErrorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
+const globalErrorHandler: ErrorRequestHandler = (err, req, res, _next) => {
   let statusCode = 500;
   let message = "Something went wrong!";
   let errorDetails: Record<string, unknown>[] = [];
@@ -28,6 +28,12 @@ const globalErrorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     message = err.message;
   } else if (err instanceof Error) {
     message = err.message;
+  }
+
+  // Unexpected errors (500s) go to the server log with the request, so they
+  // are never silent. Expected ones (validation, 404, 409, ...) are not logged.
+  if (statusCode >= 500) {
+    console.error(`[Error] ${req.method} ${req.originalUrl} -> ${statusCode}:`, err);
   }
 
   res.status(statusCode).json({

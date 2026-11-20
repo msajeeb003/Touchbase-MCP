@@ -270,7 +270,7 @@ export const requestApprovalTool = defineTool({
     sequence_ids: z.array(z.string().uuid()).min(1).max(LIMITS.LEADS_PER_BULK_CALL),
     note: z.string().trim().max(LIMITS.REASON_MAX).optional().describe("A short note for the person who reviews."),
   }),
-  handler: (input, { actor, db }) => requestApproval(actor, db, input),
+  handler: (input, { actor, db, run }) => requestApproval(actor, db, input, run?.id ?? null),
 });
 
 export const pauseSequenceTool = defineTool({

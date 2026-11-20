@@ -17,10 +17,19 @@ const createLead = catchAsync(async (req: AuthRequest, res: Response) => {
   });
 });
 
+/** At most this many leads per page, so one request cannot load a whole workspace. */
+export const MAX_LEADS_PER_PAGE = 100;
+
+/** A whole number of at least 1, or undefined (missing, "abc", "0", "-3", "2.5"). */
+const positiveInt = (value: unknown): number | undefined => {
+  const n = typeof value === "string" ? Number(value) : NaN;
+  return Number.isInteger(n) && n >= 1 ? n : undefined;
+};
+
 const getLeads = catchAsync(async (req: AuthRequest, res: Response) => {
   const result = await LeadService.getLeads(req.user!.id, {
-    page: req.query.page ? Number(req.query.page) : undefined,
-    limit: req.query.limit ? Number(req.query.limit) : undefined,
+    page: positiveInt(req.query.page),
+    limit: Math.min(positiveInt(req.query.limit) ?? 20, MAX_LEADS_PER_PAGE),
     status: req.query.status as string | undefined,
     search: req.query.search as string | undefined,
     followUpStage: req.query.followUpStage as string | undefined,

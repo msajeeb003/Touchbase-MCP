@@ -334,11 +334,27 @@ export const clearLeadDoNotContact = async (params: {
 
   const lead = await prisma.lead.findFirst({
     where: { id: params.leadId, userId: params.userId },
-    select: { id: true, email: true, phone: true, doNotContact: true },
+    select: {
+      id: true,
+      userId: true,
+      email: true,
+      phone: true,
+      doNotContact: true,
+      doNotContactSource: true,
+    },
   });
 
   if (!lead) {
     throw new AppError(404, "Lead not found");
+  }
+
+  // The lead's own opt-out (an SMS STOP, an unsubscribe) is never cleared in
+  // Touchbase, not even by a person: only the lead can choose to be contacted again.
+  if (await isLeadOptOut(lead)) {
+    throw new AppError(
+      409,
+      "This lead opted out themselves (for example by replying STOP). That can't be cleared in Touchbase."
+    );
   }
 
   const filters = addressFilters(lead.email, lead.phone);
