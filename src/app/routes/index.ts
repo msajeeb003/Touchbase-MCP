@@ -13,6 +13,7 @@ import { RunRoutes } from "../../harness/runs/run.route";
 import { McpTokenRoutes } from "../../harness/tokens/token.route";
 import { ActivityRoutes } from "../../harness/activity/activity.route";
 import { ConnectedAppRoutes } from "../../harness/oauth/connected-apps.route";
+import { SendJobRoutes } from "../../harness/send-job.route";
 
 const router = Router();
 
@@ -33,5 +34,9 @@ router.use("/runs", RunRoutes);
 router.use("/mcp-tokens", McpTokenRoutes);
 router.use("/activity", ActivityRoutes);
 router.use("/connected-apps", ConnectedAppRoutes);
+
+// The send job for hosts with no always-running process (Vercel). Off unless
+// CRON_SECRET is set; the scheduler sends it as a Bearer token.
+router.use("/internal", SendJobRoutes);
 
 export default router;

@@ -13,8 +13,12 @@ The live app and its database stay as they are.
 - `public/`: the only folder Vercel serves as plain files (just a robots.txt).
 
 Vercel runs `dist/app.js`, not `server.js`, so there is no `app.listen` and no
-background job there: the send job and the reply check do not run. In mock mode
-nothing is sent anyway.
+background job there. Due steps are sent only when something calls the send-job
+endpoint `/api/v1/internal/send-tick` with `Authorization: Bearer <CRON_SECRET>`.
+Each call runs one pass: due steps inside the send window go out (in mock mode they
+are recorded as mock sends), steps outside it move to when the window next opens.
+Without `CRON_SECRET` the endpoint is off and steps stay "scheduled" forever.
+The reply check still does not run on Vercel.
 
 ## Steps
 
@@ -32,6 +36,7 @@ nothing is sent anyway.
 | `MCP_PUBLIC_URL` | `https://<your-backend-project>.vercel.app` (no slash at the end) |
 | `MIGRATE_ON_BUILD` | `true` (sets up the tables during each build) |
 | `OUTBOUND_MODE` | leave **unset** (mock: nothing is sent) |
+| `CRON_SECRET` | a new long random text; turns on the send job (see below) |
 
 3. **Deployment Protection:** Settings → Deployment Protection → off for this project,
    otherwise Claude cannot reach `/mcp`.
@@ -43,9 +48,21 @@ nothing is sent anyway.
 7. **Claude:** claude.ai → Settings → Connectors → Add custom connector →
    `https://<your-backend-project>.vercel.app/mcp` → sign in with the test account → Allow.
 
+## The send job on Vercel
+
+`vercel.json` has a Vercel Cron that calls the send-job endpoint once a day at 04:00 UTC
+(10:00 in Dhaka). Vercel sends `CRON_SECRET` with it by itself. Once a day is the most the
+free plan allows, so it is only a safety net: for steps to go out within a minute or two of
+their time, the endpoint needs calling every minute, by Vercel Pro (change the schedule to
+`* * * * *`) or by an outside scheduler that sends the same header.
+
+Test it by hand (prints what the pass did):
+
+    curl -X POST https://<your-backend-project>.vercel.app/api/v1/internal/send-tick -H "Authorization: Bearer <CRON_SECRET>"
+
 ## Limits on Vercel (free plan)
 
-- No background jobs (sending, reply check). Fine for a test in mock mode.
+- The send job runs only when the endpoint is called (see above). No reply check.
 - The wrong-password limit and the rate limit are kept in memory, so each Vercel instance counts on its own.
 - Not verified yet: the app on Neon's pooled connection. If you see errors about
   "prepared statement", tell the developer; the fix is a small connection setting.

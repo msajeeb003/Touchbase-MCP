@@ -23,7 +23,13 @@ interface LogActivityParams {
   meta?: Record<string, unknown>;
 }
 
-export const logActivity = (params: LogActivityParams): void => {
+/**
+ * Writes one activity event. Callers that do not wait for it may ignore the
+ * returned promise; the send job waits, because on a serverless host (Vercel)
+ * work left running after the response can be cut off. A failed write is
+ * logged, never thrown and never silent.
+ */
+export const logActivity = (params: LogActivityParams): Promise<void> =>
   prisma.sequenceActivity
     .create({
       data: {
@@ -34,5 +40,10 @@ export const logActivity = (params: LogActivityParams): void => {
         meta:       (params.meta ?? {}) as Prisma.InputJsonValue,
       },
     })
-    .catch(() => {});
-};
+    .then(() => undefined)
+    .catch((error) => {
+      console.error(
+        `[Activity] Could not record "${params.eventType}" for sequence ${params.sequenceId}:`,
+        error
+      );
+    });

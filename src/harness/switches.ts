@@ -12,6 +12,8 @@
  *   MCP_PUBLIC                 "true" to answer from the internet (needs an https MCP_PUBLIC_URL)
  *   MCP_PUBLIC_URL             this backend's public address, e.g. https://api.touchbase.example
  *   APP_URL                    the Touchbase app address, for the Settings link given to Claude
+ *   CRON_SECRET                turns on the send-job endpoint (/api/v1/internal/send-tick)
+ *                              for hosts with no always-running process (Vercel)
  */
 export type DeliveryMode = "live" | "mock";
 
@@ -69,3 +71,11 @@ export const mcpPublic = (): boolean =>
  */
 export const appUrl = (): string =>
   (process.env.APP_URL ?? "").trim().replace(/\/+$/, "");
+
+/**
+ * CRON_SECRET: the shared secret a scheduler sends to the send-job endpoint
+ * as "Authorization: Bearer <secret>" (Vercel Cron sends exactly this when
+ * the project has CRON_SECRET set). Not set: the endpoint is off (404).
+ * Not lower-cased: it is a secret, compared exactly.
+ */
+export const cronSecret = (): string => (process.env.CRON_SECRET ?? "").trim();

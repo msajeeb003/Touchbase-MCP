@@ -19,7 +19,6 @@ import {
 } from "../../harness/send-window";
 
 const BATCH_SIZE = config.batch_size;
-let isProcessing = false;
 
 /** A step claimed for sending that shows no result after this long is given up. */
 export const STALE_SENDING_MINUTES = 15;
@@ -279,7 +278,7 @@ export const failInterruptedSends = async (now: Date): Promise<string[]> => {
 
     if (failed.count !== 1) continue;
 
-    logActivity({
+    await logActivity({
       sequenceId: step.sequenceId,
       stepId: step.id,
       eventType: "step_failed",
@@ -300,20 +299,29 @@ export const failInterruptedSends = async (now: Date): Promise<string[]> => {
 /**
  * Moves a waiting step to a later date and keeps the spacing of the steps
  * after it. The step stays "scheduled".
+ *
+ * The move only happens if the step still has the date this pass read. When
+ * two passes overlap, the second one finds the date already changed and does
+ * nothing, so the later steps are never shifted twice.
  */
 const deferStep = async (
   step: { id: string; sequenceId: string; stepOrder: number; scheduledAt: Date },
   newDate: Date,
   note: string
-): Promise<void> => {
+): Promise<boolean> => {
   const shiftMs = newDate.getTime() - step.scheduledAt.getTime();
 
   const moved = await prisma.sequenceStep.updateMany({
-    where: { id: step.id, status: SEQUENCE_STEP_STATUS.SCHEDULED },
+    where: {
+      id: step.id,
+      status: SEQUENCE_STEP_STATUS.SCHEDULED,
+      scheduledAt: step.scheduledAt,
+    },
     data: { scheduledAt: newDate, sendLog: note },
   });
 
-  if (moved.count !== 1 || shiftMs <= 0) return;
+  if (moved.count !== 1) return false;
+  if (shiftMs <= 0) return true;
 
   await prisma.$executeRaw`
     UPDATE sequence_steps
@@ -322,37 +330,314 @@ const deferStep = async (
       AND "stepOrder" > ${step.stepOrder}
       AND "status" = ${SEQUENCE_STEP_STATUS.SCHEDULED}
   `;
+  return true;
 };
 
+/** What one pass did. Returned by the send-job endpoint and logged. */
+export type SendTickSummary = {
+  /** due steps looked at in this pass */
+  due: number;
+  /** sent for real (live mode) */
+  sent: number;
+  /** recorded as a mock send (mock mode): marked sent, nothing left the server */
+  mock: number;
+  /** handed to a provider that reports back later (WhatsApp, calls) */
+  pending: number;
+  /** the provider refused or the step could not be sent: marked failed */
+  failed: number;
+  /** outside the send window, or no timezone: moved to a later time */
+  waiting: number;
+  /** held back on purpose: do-not-contact, not approved, changed after approval */
+  held: number;
+  /** taken by another pass at the same moment, or paused meanwhile */
+  skipped: number;
+  /** stuck in "sending" from an earlier pass: marked failed, not sent again */
+  interrupted: number;
+  /** unexpected errors (database, code). Each is logged with its step id. */
+  errors: number;
+  errorMessages: string[];
+};
+
+type DueStep = {
+  id: string;
+  sequenceId: string;
+  stepOrder: number;
+  stepType: string;
+  scheduledAt: Date;
+};
+
+type Outcome = "sent" | "mock" | "pending" | "failed" | "waiting" | "held" | "skipped";
+
 /**
- * One pass of the send processor.
- *
- * Order of the checks for every due step:
+ * Order of the checks for one due step:
  *  1. the sequence is still active;
  *  2. the lead is not do-not-contact (all four channels);
  *  3. for a sequence made through the harness: inside the user's send window
  *     (email and SMS);
  *  4. CLAIM: the step is moved "scheduled" -> "sending" with a conditional
  *     update. Only the caller whose update changed exactly one row goes on,
- *     so two processors can never send the same step;
+ *     so two passes can never send the same step;
  *  5. for a sequence made through the harness: a person approved it and
  *     nothing was changed since (checked on the content that is about to go out);
  *  6. send, then record the result.
  */
+const handleDueStep = async (
+  step: DueStep,
+  now: Date,
+  senders: Senders
+): Promise<Outcome> => {
+  // 1. fresh look at the sequence and the lead
+  const sequence = await prisma.sequence.findUnique({
+    where: { id: step.sequenceId },
+    select: {
+      id: true,
+      userId: true,
+      status: true,
+      runId: true,
+      approvalStatus: true,
+      approvedAt: true,
+      approvedByUserId: true,
+      approvedContentHash: true,
+      lead: {
+        select: {
+          userId: true,
+          name: true,
+          email: true,
+          phone: true,
+          company: true,
+          doNotContact: true,
+        },
+      },
+    },
+  });
+
+  if (sequence?.status !== "active") return "skipped";
+
+  // 2. do-not-contact: nothing goes out on any channel
+  if (await isLeadBlocked(sequence.lead)) {
+    await prisma.sequenceStep.updateMany({
+      where: { id: step.id, status: SEQUENCE_STEP_STATUS.SCHEDULED },
+      data: { sendLog: DO_NOT_CONTACT_LOG },
+    });
+    await pauseSequenceBySystem(sequence.id, "do_not_contact");
+    console.log(`[SendProcessor] Step ${step.id}: ${DO_NOT_CONTACT_LOG}`);
+    return "held";
+  }
+
+  const isHarnessSequence = sequence.runId !== null;
+
+  // 3. send window (harness sequences, email and SMS). A step whose time has
+  // passed is caught up on the first pass inside the window; outside it, the
+  // step is moved to the moment the window next opens.
+  if (isHarnessSequence && (step.stepType === "EMAIL" || step.stepType === "SMS")) {
+    const sendWindow = await loadSendWindow(sequence.userId);
+
+    if (!sendWindow.ok) {
+      const moved = await deferStep(
+        step,
+        new Date(now.getTime() + NO_TIMEZONE_RECHECK_MINUTES * 60_000),
+        `Waiting: ${sendWindow.message}`
+      );
+      return moved ? "waiting" : "skipped";
+    }
+
+    if (!isInsideSendWindow(now, sendWindow.window)) {
+      const opensAt = nextAllowedTime(now, sendWindow.window);
+      const moved = await deferStep(
+        step,
+        opensAt,
+        `Waiting for the send window. Moved to ${opensAt.toISOString()}.`
+      );
+      if (moved) {
+        console.log(`[SendProcessor] Step ${step.id}: outside the send window, moved to ${opensAt.toISOString()}`);
+      }
+      return moved ? "waiting" : "skipped";
+    }
+  }
+
+  // 4. claim before send
+  const claimed = await prisma.sequenceStep.updateMany({
+    where: {
+      id: step.id,
+      status: SEQUENCE_STEP_STATUS.SCHEDULED,
+      sequence: { status: "active" },
+    },
+    data: {
+      status: SEQUENCE_STEP_STATUS.SENDING,
+      sendingStartedAt: new Date(),
+      deliveryMode: outboundMode(),
+    },
+  });
+
+  // another pass took it, or it was paused or edited in the meantime
+  if (claimed.count !== 1) return "skipped";
+
+  // the text that will go out, read after the claim
+  const content = await prisma.sequenceStep.findUnique({
+    where: { id: step.id },
+    select: { subject: true, content: true, stepType: true },
+  });
+
+  // 5. approval record (harness sequences)
+  const approval = await checkApprovedForSend(sequence);
+
+  if (!content || !approval.ok) {
+    await prisma.sequenceStep.updateMany({
+      where: { id: step.id, status: SEQUENCE_STEP_STATUS.SENDING },
+      data: {
+        status: SEQUENCE_STEP_STATUS.SCHEDULED,
+        sendingStartedAt: null,
+        deliveryMode: null,
+        sendLog: approval.ok
+          ? null
+          : approval.reason === "not_approved"
+            ? "Not sent: this sequence has not been approved by a person."
+            : "Not sent: the messages or the recipient changed after approval. A person must approve again.",
+      },
+    });
+    if (!approval.ok) {
+      await pauseSequenceBySystem(sequence.id, approval.reason);
+      console.log(
+        `[SendProcessor] Step ${step.id} not sent (${approval.reason}); sequence paused`
+      );
+    }
+    return "held";
+  }
+
+  // 6. send
+  const result = await processStep(
+    {
+      id: step.id,
+      stepType: content.stepType,
+      subject: content.subject,
+      content: content.content,
+      sequence: { id: sequence.id, userId: sequence.userId, lead: sequence.lead },
+    },
+    senders
+  );
+
+  if (result.success && result.async) {
+    await prisma.sequenceStep.update({
+      where: { id: step.id },
+      data: {
+        status: result.whatsappPending
+          ? SEQUENCE_STEP_STATUS.SENDING
+          : SEQUENCE_STEP_STATUS.CALLING,
+        sendLog: result.log,
+        deliveryMode: result.deliveryMode,
+        ...(result.externalMessageId && { externalMessageId: result.externalMessageId }),
+      },
+    });
+    await logActivity({
+      sequenceId: step.sequenceId,
+      stepId: step.id,
+      eventType: "step_sending",
+      actor: "system",
+      meta: {
+        stepOrder: step.stepOrder,
+        stepType: step.stepType,
+        externalMessageId: result.externalMessageId ?? null,
+      },
+    });
+    console.log(`[SendProcessor] ${result.log}`);
+    return "pending";
+  }
+
+  if (result.success) {
+    const sentAt = new Date();
+    await prisma.sequenceStep.update({
+      where: { id: step.id },
+      data: {
+        status: SEQUENCE_STEP_STATUS.SENT,
+        sentAt,
+        sendLog: result.log,
+        deliveryMode: result.deliveryMode,
+      },
+    });
+    await logActivity({
+      sequenceId: step.sequenceId,
+      stepId: step.id,
+      eventType: "step_sent",
+      actor: "system",
+      meta: {
+        stepOrder: step.stepOrder,
+        stepType: step.stepType,
+        sentAt: sentAt.toISOString(),
+        channel: step.stepType.toLowerCase(),
+        deliveryMode: result.deliveryMode,
+      },
+    });
+    console.log(`[SendProcessor] ${result.log}`);
+    return result.deliveryMode === "mock" ? "mock" : "sent";
+  }
+
+  await prisma.sequenceStep.update({
+    where: { id: step.id },
+    data: {
+      status: SEQUENCE_STEP_STATUS.FAILED,
+      sendLog: result.log,
+      deliveryMode: result.deliveryMode,
+    },
+  });
+  await logActivity({
+    sequenceId: step.sequenceId,
+    stepId: step.id,
+    eventType: "step_failed",
+    actor: "system",
+    meta: { stepOrder: step.stepOrder, stepType: step.stepType, reason: result.log },
+  });
+  console.error(`[SendProcessor] Step ${step.id} failed: ${result.log}`);
+  return "failed";
+};
+
+/**
+ * One pass of the send processor: every due step (status "scheduled", time
+ * at or before now, sequence active), oldest first, at most BATCH_SIZE.
+ *
+ * Safe to run twice at the same moment (two servers, an overlapping cron, a
+ * retry): every change is a conditional update, so a step is sent at most once
+ * and a waiting step is moved at most once.
+ *
+ * An unexpected error on one step is logged with the step id and counted; the
+ * other steps still go. The returned summary says what happened.
+ */
 export const runSendTick = async (
   options: { senders?: Senders; now?: Date } = {}
-): Promise<void> => {
+): Promise<SendTickSummary> => {
   const senders = options.senders ?? defaultSenders;
   const now = options.now ?? new Date();
   const affectedSequenceIds = new Set<string>();
+  const summary: SendTickSummary = {
+    due: 0,
+    sent: 0,
+    mock: 0,
+    pending: 0,
+    failed: 0,
+    waiting: 0,
+    held: 0,
+    skipped: 0,
+    interrupted: 0,
+    errors: 0,
+    errorMessages: [],
+  };
 
-  for (const sequenceId of await failInterruptedSends(now)) {
-    affectedSequenceIds.add(sequenceId);
+  const noteError = (where: string, error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    summary.errors++;
+    summary.errorMessages.push(`${where}: ${message}`);
+    console.error(`[SendProcessor] Error (${where}):`, error);
+  };
+
+  try {
+    for (const sequenceId of await failInterruptedSends(now)) {
+      affectedSequenceIds.add(sequenceId);
+      summary.interrupted++;
+    }
+  } catch (error) {
+    noteError("interrupted sends", error);
   }
 
-  // find all the steps that are scheduled and have a scheduled date that is less than or equal to the current date
-  // and the sequence is active
-  const dueSteps = await prisma.sequenceStep.findMany({
+  const dueSteps: DueStep[] = await prisma.sequenceStep.findMany({
     where: {
       status: SEQUENCE_STEP_STATUS.SCHEDULED,
       scheduledAt: { lte: now },
@@ -369,230 +654,65 @@ export const runSendTick = async (
     },
   });
 
+  summary.due = dueSteps.length;
   if (dueSteps.length > 0) {
     console.log(`[SendProcessor] Processing ${dueSteps.length} due step(s)`);
   }
 
   for (const step of dueSteps) {
-    // 1. fresh look at the sequence and the lead
-    const sequence = await prisma.sequence.findUnique({
-      where: { id: step.sequenceId },
-      select: {
-        id: true,
-        userId: true,
-        status: true,
-        runId: true,
-        approvalStatus: true,
-        approvedAt: true,
-        approvedByUserId: true,
-        approvedContentHash: true,
-        lead: {
-          select: {
-            userId: true,
-            name: true,
-            email: true,
-            phone: true,
-            company: true,
-            doNotContact: true,
-          },
-        },
-      },
-    });
-
-    // if the sequence is not active, skip the step
-    if (sequence?.status !== "active") {
-      continue;
-    }
-
-    // 2. do-not-contact: nothing goes out on any channel
-    if (await isLeadBlocked(sequence.lead)) {
-      await prisma.sequenceStep.updateMany({
-        where: { id: step.id, status: SEQUENCE_STEP_STATUS.SCHEDULED },
-        data: { sendLog: DO_NOT_CONTACT_LOG },
-      });
-      await pauseSequenceBySystem(sequence.id, "do_not_contact");
-      console.log(`[SendProcessor] Step ${step.id}: ${DO_NOT_CONTACT_LOG}`);
-      continue;
-    }
-
-    const isHarnessSequence = sequence.runId !== null;
-
-    // 3. send window (harness sequences, email and SMS)
-    if (
-      isHarnessSequence &&
-      (step.stepType === "EMAIL" || step.stepType === "SMS")
-    ) {
-      const sendWindow = await loadSendWindow(sequence.userId);
-
-      if (!sendWindow.ok) {
-        await deferStep(
-          step,
-          new Date(now.getTime() + NO_TIMEZONE_RECHECK_MINUTES * 60_000),
-          `Waiting: ${sendWindow.message}`
-        );
-        continue;
+    try {
+      const outcome = await handleDueStep(step, now, senders);
+      summary[outcome]++;
+      if (outcome === "sent" || outcome === "mock" || outcome === "pending" || outcome === "failed") {
+        affectedSequenceIds.add(step.sequenceId);
       }
-
-      if (!isInsideSendWindow(now, sendWindow.window)) {
-        const opensAt = nextAllowedTime(now, sendWindow.window);
-        await deferStep(
-          step,
-          opensAt,
-          `Waiting for the send window. Moved to ${opensAt.toISOString()}.`
-        );
-        continue;
-      }
+    } catch (error) {
+      // A step claimed before the error stays "sending" and is marked failed
+      // as interrupted after STALE_SENDING_MINUTES; it is never sent twice.
+      noteError(`step ${step.id}`, error);
     }
-
-    // 4. claim before send
-    const claimed = await prisma.sequenceStep.updateMany({
-      where: {
-        id: step.id,
-        status: SEQUENCE_STEP_STATUS.SCHEDULED,
-        sequence: { status: "active" },
-      },
-      data: {
-        status: SEQUENCE_STEP_STATUS.SENDING,
-        sendingStartedAt: new Date(),
-        deliveryMode: outboundMode(),
-      },
-    });
-
-    if (claimed.count !== 1) {
-      // another processor took it, or it was paused or edited in the meantime
-      continue;
-    }
-
-    // the text that will go out, read after the claim
-    const content = await prisma.sequenceStep.findUnique({
-      where: { id: step.id },
-      select: { subject: true, content: true, stepType: true },
-    });
-
-    // 5. approval record (harness sequences)
-    const approval = await checkApprovedForSend(sequence);
-
-    if (!content || !approval.ok) {
-      await prisma.sequenceStep.updateMany({
-        where: { id: step.id, status: SEQUENCE_STEP_STATUS.SENDING },
-        data: {
-          status: SEQUENCE_STEP_STATUS.SCHEDULED,
-          sendingStartedAt: null,
-          deliveryMode: null,
-          sendLog: approval.ok
-            ? null
-            : approval.reason === "not_approved"
-              ? "Not sent: this sequence has not been approved by a person."
-              : "Not sent: the messages or the recipient changed after approval. A person must approve again.",
-        },
-      });
-      if (!approval.ok) {
-        await pauseSequenceBySystem(sequence.id, approval.reason);
-        console.log(
-          `[SendProcessor] Step ${step.id} not sent (${approval.reason}); sequence paused`
-        );
-      }
-      continue;
-    }
-
-    // 6. send
-    const result = await processStep(
-      {
-        id: step.id,
-        stepType: content.stepType,
-        subject: content.subject,
-        content: content.content,
-        sequence: {
-          id: sequence.id,
-          userId: sequence.userId,
-          lead: sequence.lead,
-        },
-      },
-      senders
-    );
-
-    if (result.success && result.async) {
-      await prisma.sequenceStep.update({
-        where: { id: step.id },
-        data: {
-          status: result.whatsappPending
-            ? SEQUENCE_STEP_STATUS.SENDING
-            : SEQUENCE_STEP_STATUS.CALLING,
-          sendLog: result.log,
-          deliveryMode: result.deliveryMode,
-          ...(result.externalMessageId && {
-            externalMessageId: result.externalMessageId,
-          }),
-        },
-      });
-      logActivity({
-        sequenceId: step.sequenceId,
-        stepId:     step.id,
-        eventType:  "step_sending",
-        actor:      "system",
-        meta:       { stepOrder: step.stepOrder, stepType: step.stepType, externalMessageId: result.externalMessageId ?? null },
-      });
-      console.log(`[SendProcessor] ${result.log}`);
-    } else if (result.success) {
-      await prisma.sequenceStep.update({
-        where: { id: step.id },
-        data: {
-          status: SEQUENCE_STEP_STATUS.SENT,
-          sentAt: new Date(),
-          sendLog: result.log,
-          deliveryMode: result.deliveryMode,
-        },
-      });
-      logActivity({
-        sequenceId: step.sequenceId,
-        stepId:     step.id,
-        eventType:  "step_sent",
-        actor:      "system",
-        meta:       { stepOrder: step.stepOrder, stepType: step.stepType, sentAt: new Date().toISOString(), channel: step.stepType.toLowerCase(), deliveryMode: result.deliveryMode },
-      });
-      console.log(`[SendProcessor] ${result.log}`);
-    } else {
-      await prisma.sequenceStep.update({
-        where: { id: step.id },
-        data: {
-          status: SEQUENCE_STEP_STATUS.FAILED,
-          sendLog: result.log,
-          deliveryMode: result.deliveryMode,
-        },
-      });
-      logActivity({
-        sequenceId: step.sequenceId,
-        stepId:     step.id,
-        eventType:  "step_failed",
-        actor:      "system",
-        meta:       { stepOrder: step.stepOrder, stepType: step.stepType, reason: result.log },
-      });
-      console.log(`[SendProcessor] Step ${step.id}: ${result.log}`);
-    }
-
-    affectedSequenceIds.add(step.sequenceId);
   }
 
   for (const seqId of affectedSequenceIds) {
-    await checkSequenceCompletion(seqId);
+    try {
+      await checkSequenceCompletion(seqId);
+    } catch (error) {
+      noteError(`completion of sequence ${seqId}`, error);
+    }
+  }
+
+  return summary;
+};
+
+let isProcessing = false;
+
+/**
+ * Runs one pass unless a pass is already running in this process (then it
+ * returns null). Used by the every-minute cron on a normal server and by the
+ * send-job endpoint on a serverless host. Passes in different processes may
+ * still overlap; runSendTick is safe for that.
+ */
+export const runSendTickOnce = async (
+  options: { senders?: Senders; now?: Date } = {}
+): Promise<SendTickSummary | null> => {
+  if (isProcessing) return null;
+  isProcessing = true;
+  try {
+    return await runSendTick(options);
+  } finally {
+    isProcessing = false;
   }
 };
 
-/** Cron entry: one pass at a time inside this process. */
+/** Cron entry: one pass at a time inside this process. Errors are logged. */
 export const processDueSteps = async () => {
-  console.log("Time", new Date().toISOString());
-  if (isProcessing) {
-    return;
-  }
-
-  isProcessing = true;
-
   try {
-    await runSendTick();
+    const summary = await runSendTickOnce();
+    if (summary && summary.errors > 0) {
+      console.error(`[SendProcessor] Pass finished with ${summary.errors} error(s)`);
+    }
   } catch (error) {
     console.error("[SendProcessor] Cron error:", error);
-  } finally {
-    isProcessing = false;
   }
 };
 
