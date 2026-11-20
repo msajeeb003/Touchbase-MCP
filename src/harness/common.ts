@@ -104,7 +104,7 @@ export const assertEmailAndSmsOnly = (steps: { stepType: string }[]): void => {
 // ── ownership ────────────────────────────────────────────────────────
 
 export const findLead = async (db: Db, userId: string, leadId: string): Promise<Lead> => {
-  const lead = await db.lead.findFirst({ where: { id: leadId, userId } });
+  const lead = await db.lead.findFirst({ where: { id: leadId, userId, deletedAt: null } });
   if (!lead) throw notFound("Lead");
   return lead;
 };

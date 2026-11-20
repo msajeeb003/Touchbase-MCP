@@ -5,11 +5,15 @@ import {
   doNotContactFieldsForNewLead,
   loadBlockedAddresses,
   blockedLeadFields,
+  clearDoNotContactForClaude,
+  isLeadOptOut,
+  LEAD_OPT_OUT,
   markLeadDoNotContact,
   normalizeEmailAddress,
   normalizePhoneNumber,
 } from "./do-not-contact";
 import { HarnessError, type HarnessOutcome } from "./errors";
+import { requirePermission } from "./permissions";
 import { LIMITS } from "./limits";
 import { replyTrackingEnabled } from "./switches";
 
@@ -17,8 +21,9 @@ import { replyTrackingEnabled } from "./switches";
  * AI harness: leads.
  *
  * Reading never changes anything. Writing can add a lead, correct its details
- * and mark it do-not-contact. Nothing here can delete a lead or remove a
- * do-not-contact mark.
+ * and mark it do-not-contact. Clearing a do-not-contact mark works only while
+ * "Claude can clear do-not-contact" is on, and never for the lead's own
+ * opt-out. Deleting a lead is in lead-delete.ts.
  */
 
 const OPEN_SEQUENCE = ["draft", "active", "paused"];
@@ -116,7 +121,7 @@ export const searchLeads = async (
   }
 ): Promise<HarnessOutcome> => {
   const { page, size, skip } = pageOf(input);
-  const and: Prisma.LeadWhereInput[] = [{ userId: actor.userId }];
+  const and: Prisma.LeadWhereInput[] = [{ userId: actor.userId, deletedAt: null }];
 
   if (input.query?.trim()) {
     const text = input.query.trim();
@@ -179,7 +184,7 @@ export const searchLeads = async (
   const notes: string[] = [];
   if (input.no_reply_in_days !== undefined) {
     notes.push(
-      "no_reply_in_days looks at email replies only, and includes leads who never replied. SMS replies are not recorded by Touchbase."
+      "no_reply_in_days looks at email and SMS replies, and includes leads who never replied. SMS replies are recorded only for workspaces that send SMS with Twilio."
     );
     if (!replyTrackingEnabled()) {
       notes.push(
@@ -314,6 +319,13 @@ export const createLead = async (
   if (problem) throw invalid(problem);
 
   const existing = await findSameLead(db, actor.userId, fields.email, fields.phone);
+  if (existing?.deletedAt) {
+    throw new HarnessError(
+      "CONFLICT",
+      "A recently deleted lead has this email address or phone number.",
+      "Tell the user they can restore that lead in the Touchbase app under Leads → Recently deleted."
+    );
+  }
   if (existing) {
     return {
       result: {
@@ -526,17 +538,19 @@ export const importLeads = async (
 export const markDoNotContact = async (
   actor: Actor,
   db: Db,
-  input: { lead_id: string; reason: string },
+  input: { lead_id: string; reason: string; requested_by: "lead" | "user" },
   runId: string | null
 ): Promise<HarnessOutcome> => {
   const lead = await findLead(db, actor.userId, input.lead_id);
+  // The lead asked (for example in a reply): their own opt-out, which no tool can clear.
+  const optOut = input.requested_by === "lead";
 
   const marked = await markLeadDoNotContact(
     {
       userId: actor.userId,
       leadId: lead.id,
       reason: input.reason,
-      source: "mcp",
+      source: optOut ? LEAD_OPT_OUT : "mcp",
       runId,
     },
     db
@@ -546,15 +560,63 @@ export const markDoNotContact = async (
     result: {
       lead_id: lead.id,
       do_not_contact: true,
+      source: optOut ? LEAD_OPT_OUT : "claude",
       already_marked: marked.alreadyMarked,
       addresses_blocked: marked.addressesBlocked,
       sequences_paused: marked.pausedSequenceIds,
       drafts_cancelled: marked.cancelledDraftIds,
-      note: "No message can be sent to this lead any more. Running sequences were paused and open drafts cancelled. Only a logged-in person can undo the mark, in the Touchbase app.",
+      note: optOut
+        ? "No message can be sent to this lead any more. Because the lead asked, no tool can ever clear this."
+        : "No message can be sent to this lead any more. Running sequences were paused and open drafts cancelled.",
     },
     summary: marked.alreadyMarked
       ? `${lead.name} was already marked do-not-contact`
       : `Marked ${lead.name} do-not-contact`,
     touched: [{ type: "lead", id: lead.id, label: lead.name }],
+  };
+};
+
+export const clearDoNotContact = async (
+  actor: Actor,
+  db: Db,
+  input: { lead_id: string; reason: string }
+): Promise<HarnessOutcome> => {
+  await requirePermission(db, actor.userId, "clear_do_not_contact");
+  const lead = await findLead(db, actor.userId, input.lead_id);
+
+  const reason = input.reason.trim().slice(0, LIMITS.REASON_MAX);
+  if (!reason) {
+    throw new HarnessError("VALIDATION", "A reason is required.", "Say in a few words why the block is cleared. It is shown to the user.");
+  }
+
+  // Always refused when the lead opted out themselves (SMS STOP, unsubscribe,
+  // or a reply asking not to be contacted), whatever the switch says.
+  if (await isLeadOptOut(lead, db)) {
+    throw new HarnessError(
+      "HUMAN_ONLY",
+      `${lead.name} asked not to be contacted. A block the lead set themselves can never be cleared through Claude.`,
+      "Leave this lead alone and tell the user."
+    );
+  }
+
+  const cleared = await clearDoNotContactForClaude(db, {
+    userId: actor.userId,
+    leadId: lead.id,
+    reason,
+  });
+
+  return {
+    result: {
+      lead_id: lead.id,
+      do_not_contact: false,
+      already_clear: cleared.alreadyClear,
+      addresses_cleared: cleared.clearedAddresses,
+      note: "The block is cleared. No sequence was restarted: paused sequences stay paused and cancelled drafts stay cancelled.",
+    },
+    summary: cleared.alreadyClear
+      ? `${lead.name} was not marked do-not-contact: nothing was changed`
+      : `Cleared do-not-contact for ${lead.name}: ${reason}`,
+    touched: [{ type: "lead", id: lead.id, label: lead.name }],
+    detail: { reason },
   };
 };

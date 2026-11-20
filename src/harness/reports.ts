@@ -36,9 +36,13 @@ export const getDashboard = async (
         where: { ...mine, stepType: { in: CHANNELS }, status: "failed", updatedAt: { gte: since } },
         _count: { _all: true },
       }),
-      db.leadInboundEmail.count({ where: { userId, receivedAt: { gte: since } } }),
-      db.lead.groupBy({ by: ["followUpStage"], where: { userId }, _count: { _all: true } }),
-      db.lead.groupBy({ by: ["doNotContact"], where: { userId }, _count: { _all: true } }),
+      db.leadInboundEmail.groupBy({
+        by: ["channel"],
+        where: { userId, receivedAt: { gte: since } },
+        _count: { _all: true },
+      }),
+      db.lead.groupBy({ by: ["followUpStage"], where: { userId, deletedAt: null }, _count: { _all: true } }),
+      db.lead.groupBy({ by: ["doNotContact"], where: { userId, deletedAt: null }, _count: { _all: true } }),
       db.sequence.groupBy({ by: ["status"], where: { userId }, _count: { _all: true } }),
       db.sequence.count({ where: { userId, status: "draft", approvalStatus: "awaiting_approval" } }),
       db.sequenceStep.findMany({
@@ -74,7 +78,7 @@ export const getDashboard = async (
 
   const notes: string[] = [];
   if (!replyTrackingEnabled()) {
-    notes.push("Reply tracking is switched off on this server, so replies_received may be too low.");
+    notes.push("Email reply tracking is switched off on this server, so email replies may be too low.");
   }
   if (outboundMode() === "mock") {
     notes.push("This server is in mock mode: \"sent\" messages were recorded, not really sent.");
@@ -85,7 +89,11 @@ export const getDashboard = async (
       period_days: days,
       email: channel("EMAIL"),
       sms: channel("SMS"),
-      replies_received: replies,
+      replies_received: replies.reduce((sum, row) => sum + row._count._all, 0),
+      replies_by_channel: {
+        email: replies.find((row) => row.channel === "email")?._count._all ?? 0,
+        sms: replies.find((row) => row.channel === "sms")?._count._all ?? 0,
+      },
       leads: {
         total: leadTotals.reduce((sum, row) => sum + row._count._all, 0),
         do_not_contact: leadTotals.find((row) => row.doNotContact)?._count._all ?? 0,
@@ -121,7 +129,20 @@ export const ACTIVITY_TYPES = [
   "stopped",
   "approved",
   "edited",
+  "lead_deleted",
+  "do_not_contact_cleared",
+  "settings_changed",
 ] as const;
+
+/**
+ * Claude's actions that are not about one sequence. They are read from the
+ * run log (agent_run_events), where every tool call is recorded.
+ */
+const RUN_EVENT_TYPES: Record<string, string> = {
+  delete_lead: "lead_deleted",
+  clear_do_not_contact: "do_not_contact_cleared",
+  update_workspace_settings: "settings_changed",
+};
 
 /** One word for what happened, from the activity log's own event names. */
 const typeOf = (eventType: string, meta: { from?: unknown; to?: unknown }): string => {
@@ -178,7 +199,11 @@ export const listRecentActivity = async (
   const wanted = input.types && input.types.length > 0 ? new Set(input.types) : null;
   const userId = actor.userId;
 
-  const [activities, replies] = await Promise.all([
+  const wantedRunTools = Object.entries(RUN_EVENT_TYPES)
+    .filter(([, type]) => !wanted || wanted.has(type))
+    .map(([tool]) => tool);
+
+  const [activities, replies, runEvents] = await Promise.all([
     db.sequenceActivity.findMany({
       where: {
         createdAt: { gte: since },
@@ -203,12 +228,32 @@ export const listRecentActivity = async (
           select: {
             receivedAt: true,
             leadId: true,
+            channel: true,
             subject: true,
             lead: { select: { name: true } },
           },
         })
       : [],
+    wantedRunTools.length > 0
+      ? db.agentRunEvent.findMany({
+          where: {
+            run: { userId },
+            ok: true,
+            toolName: { in: wantedRunTools },
+            createdAt: { gte: since },
+          },
+          orderBy: { createdAt: "desc" },
+          take: SCAN_LIMIT,
+          select: { createdAt: true, toolName: true, summary: true, touched: true, detail: true },
+        })
+      : [],
   ]);
+
+  const leadOf = (touched: unknown): string | null => {
+    if (!Array.isArray(touched)) return null;
+    const lead = touched.find((t) => t && typeof t === "object" && (t as { type?: string }).type === "lead");
+    return lead ? String((lead as { id: string }).id) : null;
+  };
 
   const events = [
     ...activities.map((a) => {
@@ -232,17 +277,39 @@ export const listRecentActivity = async (
       actor: "lead",
       sequence_id: null,
       step_number: null,
-      channel: "email",
+      channel: r.channel,
       lead_id: r.leadId,
       untrusted: { lead_name: r.lead.name },
       untrusted_details: { subject: r.subject },
     })),
+    ...runEvents
+      // A change Claude made "without effect" (repeat call) is not shown.
+      .filter((e) => !/nothing was changed/i.test(e.summary))
+      .map((e) => {
+        const leadId = leadOf(e.touched);
+        const touchedLead = Array.isArray(e.touched)
+          ? (e.touched as { type?: string; label?: string }[]).find((t) => t?.type === "lead")
+          : undefined;
+        return {
+          at: e.createdAt.toISOString(),
+          type: RUN_EVENT_TYPES[e.toolName],
+          actor: "claude",
+          sequence_id: null,
+          step_number: null,
+          channel: null,
+          lead_id: leadId,
+          untrusted: { lead_name: touchedLead?.label ?? null },
+          // The summary and reason can repeat a lead's name: treat as data.
+          untrusted_details: { summary: e.summary, ...((e.detail ?? {}) as Record<string, unknown>) },
+        };
+      })
+      .filter((e) => !input.lead_id || e.lead_id === input.lead_id),
   ]
     .filter((event) => !wanted || wanted.has(event.type))
     .sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
 
   const notes: string[] = [];
-  if (activities.length === SCAN_LIMIT || replies.length === SCAN_LIMIT) {
+  if (activities.length === SCAN_LIMIT || replies.length === SCAN_LIMIT || runEvents.length === SCAN_LIMIT) {
     notes.push("There was more activity than could be looked at in one go. Use a later `since` date or a lead_id to narrow it.");
   }
   if (!replyTrackingEnabled()) {

@@ -31,8 +31,17 @@
     ]
   },
   "get_workspace_profile": {
+    "activations_left_today": "null",
     "auto_draft_enabled": "boolean",
     "booking_link": "null",
+    "claude_permissions": {
+      "activate": "boolean",
+      "clear_do_not_contact": "boolean",
+      "daily_activation_cap": "number",
+      "delete_leads": "boolean",
+      "edit_settings": "boolean",
+      "resume": "boolean"
+    },
     "email_ready": "boolean",
     "notes": [
       "string"
@@ -50,7 +59,9 @@
     "sender_name": "string",
     "sender_position": "null",
     "service_description": "null",
-    "sms_ready": "boolean"
+    "setup_url": "null",
+    "sms_ready": "boolean",
+    "sms_replies_recorded": "boolean"
   },
   "search_leads": {
     "leads": [
@@ -129,6 +140,7 @@
     "page_size": "number",
     "replies": [
       {
+        "channel": "string",
         "received_at": "string",
         "reply_id": "string",
         "truncated": "boolean",
@@ -213,7 +225,8 @@
     "drafts_cancelled": [],
     "lead_id": "string",
     "note": "string",
-    "sequences_paused": []
+    "sequences_paused": [],
+    "source": "string"
   },
   "add_lead_transcript": {
     "already_existed": "boolean",
@@ -411,7 +424,8 @@
     "error": {
       "code": "string",
       "message": "string",
-      "next_step": "string"
+      "next_step": "string",
+      "setting": "string"
     }
   },
   "stop_sequence": {
@@ -420,6 +434,38 @@
     "status": "string",
     "steps_skipped": "number",
     "was_already_ended": "boolean"
+  },
+  "activate_sequence": {
+    "error": {
+      "code": "string",
+      "message": "string",
+      "next_step": "string",
+      "setting": "string"
+    }
+  },
+  "update_workspace_settings": {
+    "error": {
+      "code": "string",
+      "message": "string",
+      "next_step": "string",
+      "setting": "string"
+    }
+  },
+  "delete_lead": {
+    "error": {
+      "code": "string",
+      "message": "string",
+      "next_step": "string",
+      "setting": "string"
+    }
+  },
+  "clear_do_not_contact": {
+    "error": {
+      "code": "string",
+      "message": "string",
+      "next_step": "string",
+      "setting": "string"
+    }
   },
   "list_sequences": {
     "page": "number",
@@ -540,6 +586,10 @@
       "string"
     ],
     "period_days": "number",
+    "replies_by_channel": {
+      "email": "number",
+      "sms": "number"
+    },
     "replies_received": "number",
     "sequences_by_status": {
       "cancelled": "number",

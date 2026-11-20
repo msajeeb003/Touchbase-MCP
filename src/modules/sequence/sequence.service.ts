@@ -40,7 +40,7 @@ const assertDraftOrPaused = (status: string, action: string) => {
 
 const createSequence = async (userId: string, payload: CreateSequenceInput) => {
   const lead = await prisma.lead.findFirst({
-    where: { id: payload.leadId, userId },
+    where: { id: payload.leadId, userId, deletedAt: null },
   });
 
   if (!lead) {
@@ -354,6 +354,7 @@ const transitionToActive = async (
           approvalStatus: "approved",
           approvedAt: now,
           approvedByUserId: actorUserId,
+          approvedByActor: "user",
           approvedContentHash,
           pausedReason: null,
           pausedAt: null,
@@ -526,7 +527,7 @@ const updateSequence = async (
 
   if (payload.leadId !== undefined && payload.leadId !== sequence.leadId) {
     const lead = await prisma.lead.findFirst({
-      where: { id: payload.leadId, userId },
+      where: { id: payload.leadId, userId, deletedAt: null },
       select: { id: true },
     });
     if (!lead) {
@@ -1027,7 +1028,7 @@ const generateAndSave = async (
 
     assertDraftOrPaused(sequence.status, "rebuild this sequence");
 
-    const lead = await prisma.lead.findFirst({ where: { id: leadId, userId } });
+    const lead = await prisma.lead.findFirst({ where: { id: leadId, userId, deletedAt: null } });
     if (!lead) throw new AppError(404, "Lead not found");
 
     const promptTemplate = await prisma.promptTemplate.findFirst({
@@ -1150,7 +1151,7 @@ const generateAndSave = async (
   }
 
   // --- CREATE PATH ---
-  const lead = await prisma.lead.findFirst({ where: { id: leadId, userId } });
+  const lead = await prisma.lead.findFirst({ where: { id: leadId, userId, deletedAt: null } });
   if (!lead) throw new AppError(404, "Lead not found");
 
   const promptTemplate = await prisma.promptTemplate.findFirst({

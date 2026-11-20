@@ -3,8 +3,9 @@ import type { Actor } from "./actor";
 import { type Db, notFound } from "./common";
 import { HarnessError, type HarnessOutcome } from "./errors";
 import { LIMITS } from "./limits";
-import { resolveSendWindow } from "./send-window";
-import { outboundMode, replyTrackingEnabled } from "./switches";
+import { permissionsView } from "./permissions";
+import { resolveSendWindow, startOfLocalDay } from "./send-window";
+import { appUrl, outboundMode, replyTrackingEnabled } from "./switches";
 
 /**
  * AI harness: prompt templates, goal labels and the sender profile.
@@ -13,8 +14,9 @@ import { outboundMode, replyTrackingEnabled } from "./switches";
  * are returned as plain fields.
  *
  * The workspace profile is a fixed list of non-secret fields. It never
- * contains a key, a password, a token, a host name or a user name, and no
- * tool can change the send window.
+ * contains a key, a password, a token, a host name or a user name. Its plain
+ * fields can be changed by update_workspace_settings, only while the
+ * workspace switch for it is on (see workspace-settings.ts).
  */
 
 const templateView = (template: PromptTemplate, withText: boolean) => ({
@@ -282,6 +284,20 @@ export const getWorkspaceProfile = async (actor: Actor, db: Db): Promise<Harness
     notes.push("This server is in mock mode: messages are recorded but not really sent.");
   }
 
+  const permissions = permissionsView(s);
+  let activationsLeftToday: number | null = null;
+  if (permissions.activate && sendWindow.ok) {
+    const used = await db.sequence.count({
+      where: {
+        userId: actor.userId,
+        approvedByActor: "claude",
+        approvedAt: { gte: startOfLocalDay(new Date(), sendWindow.window.timeZone) },
+      },
+    });
+    activationsLeftToday = Math.max(0, permissions.daily_activation_cap - used);
+  }
+  const app = appUrl();
+
   return {
     result: {
       sender_name: s?.senderName ?? s?.smtpFromName ?? null,
@@ -301,6 +317,12 @@ export const getWorkspaceProfile = async (actor: Actor, db: Db): Promise<Harness
         weekends: s?.sendOnWeekends ?? false,
         ready: sendWindow.ok,
       },
+      // What the user allows Claude to do. Only a person can change these, in Settings.
+      claude_permissions: permissions,
+      activations_left_today: activationsLeftToday,
+      sms_replies_recorded: s?.smsProvider === "twilio",
+      // Where the user sets up email and SMS sending and these switches.
+      setup_url: app ? `${app}/dashboard/settings` : null,
       notes,
     },
     summary: "Read the workspace profile",

@@ -65,7 +65,12 @@ model Lead {
   doNotContact       Boolean   @default(false)
   doNotContactAt     DateTime?
   doNotContactReason String?
-  doNotContactSource String? // "mcp" | "user" | "system"
+  doNotContactSource String? // "mcp" | "user" | "system" | "lead_opt_out"
+
+  // AI harness: soft delete by Claude. Hidden everywhere; restorable in the app for 30 days.
+  deletedAt     DateTime?
+  deletedReason String?
+  deletedBy     String? // "claude" | "user"
 
   @@unique([userId, email])
   @@index([userId])
@@ -146,6 +151,7 @@ model Sequence {
   approvedAt          DateTime?
   approvedByUserId    String?
   approvedContentHash String? // hash of the steps at the moment a person activated the sequence
+  approvedByActor     String? // "user" | "claude": who released it
   pausedReason        String? // "lead_replied" | "paused_by_claude" | "paused_by_user"
   pausedAt            DateTime?
 
@@ -281,6 +287,15 @@ model UserSettings {
   sendWindowEnd   String  @default("18:00")
   sendOnWeekends  Boolean @default(false)
   sendTimezone    String? // IANA name, e.g. "Europe/London". No default on purpose.
+
+  // AI harness: what Claude may do in this workspace. All OFF by default.
+  // Changed only by a logged-in person (PATCH /settings). No MCP tool can change them.
+  claudeCanActivate          Boolean @default(false)
+  claudeCanResume            Boolean @default(false)
+  claudeCanEditSettings      Boolean @default(false)
+  claudeCanDeleteLeads       Boolean @default(false)
+  claudeCanClearDoNotContact Boolean @default(false)
+  claudeDailyActivationCap   Int     @default(50)
   fathomWebhookId     String?
   fathomWebhookSecret String?  // AES-256-GCM encrypted
 
@@ -296,8 +311,10 @@ model LeadInboundEmail {
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   leadId     String
   lead       Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  messageId  String
-  fromEmail  String
+  messageId  String // email Message-ID, or the SMS provider's message id
+  channel    String   @default("email") // "email" | "sms"
+  fromEmail  String?  // null for SMS
+  fromPhone  String?  // SMS only, as +digits
   fromName   String?
   toEmail    String?
   subject    String?
@@ -330,7 +347,7 @@ model SuppressedContact {
   kind            String // "email" | "phone"
   value           String // lower-cased email, or phone as +digits
   reason          String?
-  source          String // "mcp" | "user" | "system"
+  source          String // "mcp" | "user" | "system" | "lead_opt_out" (the lead asked: no tool can clear it)
   runId           String?
   leadId          String? // the lead it was set from (no foreign key: survives lead deletion)
   createdAt       DateTime  @default(now())

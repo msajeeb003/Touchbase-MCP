@@ -149,12 +149,16 @@ export const markDoNotContactTool = defineTool({
     "Use this when a lead asked not to be contacted, or the user says to stop contacting them. " +
     "It blocks the lead's email address and phone number: no message can go to them on any channel, " +
     "their running sequences are paused, their open drafts are cancelled, and the address stays blocked even if the lead is deleted and imported again. " +
-    "There is no tool to undo this: only a logged-in person can clear it in the Touchbase app. " +
+    "Set requested_by to \"lead\" when the lead asked (for example in a reply): that block can never be cleared through Claude. " +
+    "Set it to \"user\" when the user decided it. " +
     WRITE_NOTE,
   input: z.strictObject({
     run_id: runIdRequired,
     lead_id: id("The lead."),
     reason: z.string().trim().min(1).max(LIMITS.REASON_MAX).describe("Why, in a few words. Shown to the user."),
+    requested_by: z
+      .enum(["lead", "user"])
+      .describe('"lead" if the lead asked not to be contacted, "user" if the user decided it.'),
   }),
   handler: (input, { actor, db, run }) => markDoNotContact(actor, db, input, run?.id ?? null),
 });

@@ -38,6 +38,10 @@ router.post(
   LeadController.deleteManyLeads
 );
 
+// Leads Claude deleted, restorable for 30 days. Before "/:id" so "deleted" is not read as an id.
+router.get("/deleted", auth, LeadController.getDeletedLeads);
+router.post("/:id/restore", auth, LeadController.restoreDeletedLead);
+
 router.get("/:id", auth, LeadController.getLeadById);
 
 router.patch(
@@ -57,8 +61,8 @@ router.delete(
 router.delete("/:id", auth, LeadController.deleteLead);
 
 // Do-not-contact. Both routes need a login session (the `auth` middleware
-// accepts only the app's login token). Clearing exists ONLY here: there is no
-// MCP tool for it, and there must never be one.
+// accepts only the app's login token). The MCP tool clear_do_not_contact works
+// only while its workspace switch is on, and never for a lead's own opt-out.
 router.post(
   "/:id/do-not-contact",
   auth,

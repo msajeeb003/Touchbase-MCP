@@ -20,7 +20,17 @@ import { pauseActiveSequencesForLead } from "./pause";
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
-export type DoNotContactSource = "mcp" | "user" | "system";
+/**
+ * Who set the block. "lead_opt_out" means the lead asked (SMS STOP, an
+ * unsubscribe, or a reply asking not to be contacted). No tool can ever clear
+ * a lead_opt_out block.
+ */
+export type DoNotContactSource = "mcp" | "user" | "system" | "lead_opt_out";
+
+export const LEAD_OPT_OUT = "lead_opt_out";
+
+const activityActorFor = (source: DoNotContactSource): string =>
+  source === "mcp" ? "claude" : source === LEAD_OPT_OUT ? "lead" : source;
 
 export const DO_NOT_CONTACT_REASON_MAX = 300;
 
@@ -160,7 +170,7 @@ export const markLeadDoNotContact = async (
 ) => {
   const lead = await (outer ?? prisma).lead.findFirst({
     where: { id: params.leadId, userId: params.userId },
-    select: { id: true, email: true, phone: true, doNotContact: true },
+    select: { id: true, email: true, phone: true, doNotContact: true, doNotContactSource: true },
   });
 
   if (!lead) {
@@ -196,6 +206,17 @@ export const markLeadDoNotContact = async (
           },
         });
         changed = true;
+      } else if (
+        !existing.clearedAt &&
+        params.source === LEAD_OPT_OUT &&
+        existing.source !== LEAD_OPT_OUT
+      ) {
+        // Already blocked, and now the lead asked too: it becomes the lead's own opt-out.
+        await tx.suppressedContact.update({
+          where: key,
+          data: { source: LEAD_OPT_OUT, reason: reason ?? existing.reason, runId: params.runId ?? null },
+        });
+        changed = true;
       } else if (existing.clearedAt) {
         // Blocked again after a person had cleared it.
         await tx.suppressedContact.update({
@@ -215,7 +236,7 @@ export const markLeadDoNotContact = async (
       }
     }
 
-    if (!lead.doNotContact) {
+    if (!lead.doNotContact || (params.source === LEAD_OPT_OUT && lead.doNotContactSource !== LEAD_OPT_OUT)) {
       changed = true;
       return tx.lead.update({
         where: { id: lead.id },
@@ -280,7 +301,7 @@ const cancelOpenDrafts = async (
       data: {
         sequenceId: draft.id,
         eventType: "sequence_status_changed",
-        actor: source === "mcp" ? "claude" : source,
+        actor: activityActorFor(source),
         meta: { from: "draft", to: "cancelled", reason: "do_not_contact" },
       },
     });
@@ -352,4 +373,91 @@ export const clearLeadDoNotContact = async (params: {
 
     return { lead: updated, clearedAddresses: cleared.count };
   });
+};
+
+/** Is any active block on this lead the lead's own opt-out? */
+export const isLeadOptOut = async (
+  lead: { userId: string; email: string | null; phone: string | null; doNotContactSource: string | null },
+  db: Db = prisma
+): Promise<boolean> => {
+  if (lead.doNotContactSource === LEAD_OPT_OUT) return true;
+  const filters = addressFilters(lead.email, lead.phone);
+  if (filters.length === 0) return false;
+  const rows = await db.suppressedContact.count({
+    where: { userId: lead.userId, clearedAt: null, source: LEAD_OPT_OUT, OR: filters },
+  });
+  return rows > 0;
+};
+
+/**
+ * Clears do-not-contact for Claude (clear_do_not_contact tool), only while the
+ * workspace switch is on (checked by the caller). Never clears the lead's own
+ * opt-out: the caller refuses that first, and this checks again.
+ * Safe to call twice. Does not restart any sequence.
+ */
+export const clearDoNotContactForClaude = async (
+  db: Prisma.TransactionClient,
+  params: { userId: string; leadId: string; reason: string }
+) => {
+  const lead = await db.lead.findFirst({
+    where: { id: params.leadId, userId: params.userId, deletedAt: null },
+  });
+  if (!lead) throw new AppError(404, "Lead not found");
+  if (await isLeadOptOut(lead, db)) {
+    throw new AppError(403, "The lead opted out themselves.");
+  }
+
+  const filters = addressFilters(lead.email, lead.phone);
+  const cleared =
+    filters.length > 0
+      ? await db.suppressedContact.updateMany({
+          where: { userId: params.userId, clearedAt: null, OR: filters },
+          data: { clearedAt: new Date(), clearedByUserId: params.userId, clearReason: params.reason },
+        })
+      : { count: 0 };
+
+  if (!lead.doNotContact && cleared.count === 0) {
+    return { lead, alreadyClear: true, clearedAddresses: 0 };
+  }
+
+  const updated = await db.lead.update({
+    where: { id: lead.id },
+    data: { doNotContact: false, doNotContactAt: null, doNotContactReason: null, doNotContactSource: null },
+  });
+  return { lead: updated, alreadyClear: false, clearedAddresses: cleared.count };
+};
+
+/**
+ * Blocks one phone number as the person's own opt-out (an SMS STOP), also when
+ * no lead has that number yet. Safe to call twice.
+ */
+export const blockPhoneAsOptOut = async (
+  db: Db,
+  userId: string,
+  phone: string,
+  reason: string
+): Promise<boolean> => {
+  const value = normalizePhoneNumber(phone);
+  if (!value) return false;
+  const key = { userId_kind_value: { userId, kind: "phone", value } };
+  const existing = await db.suppressedContact.findUnique({ where: key });
+  if (existing && !existing.clearedAt && existing.source === LEAD_OPT_OUT) return false;
+  if (!existing) {
+    await db.suppressedContact.create({
+      data: { userId, kind: "phone", value, reason, source: LEAD_OPT_OUT },
+    });
+  } else {
+    await db.suppressedContact.update({
+      where: key,
+      data: {
+        reason,
+        source: LEAD_OPT_OUT,
+        createdAt: new Date(),
+        clearedAt: null,
+        clearedByUserId: null,
+        clearReason: null,
+      },
+    });
+  }
+  return true;
 };

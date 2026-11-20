@@ -51,6 +51,12 @@ const createLead = async (userId: string, payload: CreateLeadInput) => {
       where: { userId, email: payload.email },
     });
 
+    if (existing?.deletedAt) {
+      throw new AppError(
+        409,
+        "A recently deleted lead has this email. Restore it from Leads → Recently deleted."
+      );
+    }
     if (existing) {
       throw new AppError(409, "A lead with this email already exists");
     }
@@ -84,7 +90,7 @@ const getLeads = async (userId: string, query: LeadQuery) => {
   const limit = query.limit || 20;
   const skip = (page - 1) * limit;
 
-  const where: Record<string, unknown> = { userId };
+  const where: Record<string, unknown> = { userId, deletedAt: null };
 
   if (query.status) {
     where.status = query.status;
@@ -125,7 +131,7 @@ const getLeads = async (userId: string, query: LeadQuery) => {
 
 const getLeadById = async (userId: string, leadId: string) => {
   const lead = await prisma.lead.findFirst({
-    where: { id: leadId, userId },
+    where: { id: leadId, userId, deletedAt: null },
   });
 
   if (!lead) {
@@ -209,7 +215,7 @@ const deleteManyLeads = async (userId: string, payload: BulkDeleteLeadsInput) =>
   // console.log({uniqueIds});
 
   const result = await prisma.lead.deleteMany({
-    where: { userId, id: { in: uniqueIds } },
+    where: { userId, id: { in: uniqueIds }, deletedAt: null },
   });
 
   return {

@@ -18,6 +18,7 @@ import {
 } from "../../harness/sequences";
 import { defineTool, type HarnessTool } from "../tool-kit";
 import { z } from "../zod";
+import { powerNote } from "./powers";
 import {
   DRAFTS_ONLY_NOTE,
   id,
@@ -291,10 +292,12 @@ export const resumeSequenceTool = defineTool({
   kind: "write",
   run: "required",
   description:
-    "Resuming starts sending again, so it is a person's decision. On most servers this tool is switched off " +
-    "and answers HUMAN_ONLY: then tell the user to resume the sequence in the Touchbase app. " +
-    "Where it is switched on, it resumes only a sequence that a person approved, that has not changed since, " +
-    "and that was paused by you or by the user's pause button.",
+    "Use this to continue a paused sequence. Resuming starts sending again. " +
+    "It resumes only a sequence that a person or you activated, that has not changed since, " +
+    "and that was paused by you or by the user's pause button. A sequence paused because the lead replied needs a person. " +
+    powerNote("resume") +
+    " " +
+    WRITE_NOTE,
   input: z.strictObject({ run_id: runIdRequired, sequence_id: sequenceId }),
   handler: (input, { actor, db }) => resumeSequence(actor, db, input),
 });

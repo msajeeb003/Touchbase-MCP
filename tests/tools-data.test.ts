@@ -87,7 +87,7 @@ test("search_leads: stage, text and the \"no reply in N days\" filter", async ()
 
   const noReply = await s.call("search_leads", { no_reply_in_days: 7 });
   assert.deepEqual(names(noReply), ["Blocked Person", "Never Replied", "Replied Long Ago"]);
-  assert.ok(noReply.data.notes.some((n: string) => /email replies only/i.test(n)));
+  assert.ok(noReply.data.notes.some((n: string) => /email and SMS replies/i.test(n)));
   assert.ok(noReply.data.notes.some((n: string) => /switched off/i.test(n)), "tracking is off here: Claude is told");
 
   assert.deepEqual(names(await s.call("search_leads", { follow_up_stage: "demo done" })), ["Replied Long Ago", "Replied Recently"]);
@@ -245,7 +245,7 @@ test("import_leads: adds, skips duplicates, lists invalid rows, and a repeat add
   await s.close();
 });
 
-test("mark_lead_do_not_contact blocks the lead for good; no tool can undo it", async () => {
+test("mark_lead_do_not_contact blocks the lead; the clear tool answers HUMAN_ONLY while its switch is off", async () => {
   const s = await startSession(app.mcpUrl);
   const lead = await makeLead(s.user.id, { email: "stop@example.com", phone: "+15550100033" });
   const running = await makeSequence(s.user.id, lead.id, { status: "active" });
@@ -253,7 +253,7 @@ test("mark_lead_do_not_contact blocks the lead for good; no tool can undo it", a
   await makeStep(openDraft.id, { status: "draft" });
   const sent = await makeStep(running.id, { status: "sent", sentAt: new Date() });
 
-  const marked = await s.write("mark_lead_do_not_contact", { lead_id: lead.id, reason: "Asked us to stop" });
+  const marked = await s.write("mark_lead_do_not_contact", { lead_id: lead.id, reason: "Asked us to stop", requested_by: "user" });
   assert.equal(marked.isError, false, marked.text);
   assert.equal(marked.data.do_not_contact, true);
   assert.equal(marked.data.already_marked, false);
@@ -276,14 +276,16 @@ test("mark_lead_do_not_contact blocks the lead for good; no tool can undo it", a
   assert.ok(rows.every((row) => row.source === "mcp" && row.runId === s.runId));
   assert.equal((await prisma.sequence.findUniqueOrThrow({ where: { id: running.id } })).pausedReason, "do_not_contact");
 
-  const repeat = await s.write("mark_lead_do_not_contact", { lead_id: lead.id, reason: "Again" });
+  const repeat = await s.write("mark_lead_do_not_contact", { lead_id: lead.id, reason: "Again", requested_by: "user" });
   assert.equal(repeat.data.already_marked, true);
   assert.equal(await prisma.suppressedContact.count(), 2);
-  assert.equal((await s.write("mark_lead_do_not_contact", { lead_id: lead.id })).isError, true, "a reason is required");
+  assert.equal((await s.write("mark_lead_do_not_contact", { lead_id: lead.id, requested_by: "user" })).isError, true, "a reason is required");
+  assert.equal((await s.write("mark_lead_do_not_contact", { lead_id: lead.id, reason: "x" })).isError, true, "requested_by is required");
 
-  // nothing in the tool list can clear it, and a draft for the lead is refused
-  const tools = (await s.client.listTools()).tools.map((t) => t.name);
-  assert.equal(tools.some((name) => /clear|unmark|allow_contact|remove_do_not/.test(name)), false);
+  // the clear tool is off by default, and a draft for the lead is refused
+  const clear = await s.write("clear_do_not_contact", { lead_id: lead.id, reason: "Mistake" });
+  assert.equal(clear.data.error.code, "HUMAN_ONLY");
+  assert.match(clear.data.error.next_step, /Settings → Claude permissions/);
   const draft = await s.write("create_draft_sequences", {
     lead_ids: [lead.id],
     steps: [{ step_number: 1, channel: "email", delay_days: 0 }],
@@ -487,16 +489,23 @@ test("get_workspace_profile says what is ready and never returns a secret", asyn
   assert.equal(JSON.stringify(full.data).includes("SECRET"), false, "no key, password, host or user name");
   assert.equal(full.text.includes("+1555010"), false, "no phone numbers of the account");
   assert.deepEqual(Object.keys(full.data).sort(), [
-    "auto_draft_enabled", "booking_link", "email_ready", "notes", "outbound_mode",
-    "reply_tracking_enabled", "send_window", "sender_company", "sender_name",
-    "sender_position", "service_description", "sms_ready",
+    "activations_left_today", "auto_draft_enabled", "booking_link", "claude_permissions", "email_ready",
+    "notes", "outbound_mode", "reply_tracking_enabled", "send_window", "sender_company", "sender_name",
+    "sender_position", "service_description", "setup_url", "sms_ready", "sms_replies_recorded",
   ]);
+  assert.deepEqual(full.data.claude_permissions, {
+    activate: false, resume: false, edit_settings: false, delete_leads: false,
+    clear_do_not_contact: false, daily_activation_cap: 50,
+  });
 
-  // no tool can change the send window
+  // only update_workspace_settings can change the send window, and no tool takes a permission switch
   const tools = (await s.client.listTools()).tools;
   for (const tool of tools) {
     const fields = Object.keys((tool.inputSchema.properties ?? {}) as object);
-    assert.equal(fields.some((f) => /timezone|send_window|weekend/i.test(f)), false, tool.name);
+    if (tool.name !== "update_workspace_settings") {
+      assert.equal(fields.some((f) => /timezone|send_window|weekend/i.test(f)), false, tool.name);
+    }
+    assert.equal(fields.some((f) => /claude_?can|permission|activation_cap/i.test(f)), false, tool.name);
   }
   await s.close();
 });

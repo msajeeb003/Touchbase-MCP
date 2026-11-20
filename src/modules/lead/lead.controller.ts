@@ -1,4 +1,5 @@
 import { Response } from "express";
+import { listDeletedLeads, restoreLead } from "../../harness/lead-delete";
 import { AuthRequest } from "../../shared/middleware/auth";
 import catchAsync from "../../shared/utils/catchAsync";
 import sendResponse from "../../shared/utils/sendResponse";
@@ -133,7 +134,32 @@ const clearDoNotContact = catchAsync(async (req: AuthRequest, res: Response) => 
   });
 });
 
+// Recently deleted (leads Claude deleted): list and restore. Login session only.
+const getDeletedLeads = catchAsync(async (req: AuthRequest, res: Response) => {
+  const result = await listDeletedLeads(req.user!.id);
+
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: "Deleted leads retrieved successfully",
+    data: result,
+  });
+});
+
+const restoreDeletedLead = catchAsync(async (req: AuthRequest, res: Response) => {
+  const result = await restoreLead(req.user!.id, req.params.id as string);
+
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: "Lead restored",
+    data: result,
+  });
+});
+
 export const LeadController = {
+  getDeletedLeads,
+  restoreDeletedLead,
   markDoNotContact,
   clearDoNotContact,
   createLead,

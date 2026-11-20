@@ -67,6 +67,18 @@ export const updateSettingsSchema = z.object({
       })
       .nullable()
       .optional(),
+
+    /**
+     * What Claude may do in this workspace (AI harness). All off by default.
+     * This route takes the login token only: Claude's access tokens are
+     * refused here, so Claude can never change these switches.
+     */
+    claudeCanActivate: z.boolean().optional(),
+    claudeCanResume: z.boolean().optional(),
+    claudeCanEditSettings: z.boolean().optional(),
+    claudeCanDeleteLeads: z.boolean().optional(),
+    claudeCanClearDoNotContact: z.boolean().optional(),
+    claudeDailyActivationCap: z.number().int().min(0).max(500).optional(),
   }),
 });
 

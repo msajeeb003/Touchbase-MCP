@@ -1,5 +1,5 @@
 // A small synthetic "world" for one user, and one set of arguments for every
-// tool. The proof tests use both to exercise all 37 tools in one pass.
+// tool. The proof tests use both to exercise all 41 tools in one pass.
 import { randomUUID } from "node:crypto";
 import { prisma } from "./setup";
 import { currentApprovalHash } from "../../src/harness/approval";
@@ -171,7 +171,7 @@ export const callsFor = (w: World, runId: string): [string, Record<string, unkno
   ["create_lead", { run_id: runId, name: "New Person", email: "new.person@example.com" }],
   ["update_lead", { run_id: runId, lead_id: w.lead2, company: "Updated Co" }],
   ["import_leads", { run_id: runId, rows: [{ name: "Imported Person", email: "imported.person@example.com" }] }],
-  ["mark_lead_do_not_contact", { run_id: runId, lead_id: w.lead4, reason: "Asked to stop" }],
+  ["mark_lead_do_not_contact", { run_id: runId, lead_id: w.lead4, reason: "Asked to stop", requested_by: "lead" }],
   ["add_lead_transcript", { run_id: runId, lead_id: w.lead2, meeting_title: "Phone call", meeting_date: "2026-11-01", text: "Pasted notes from the call." }],
   ["create_template", { run_id: runId, name: "Proposal follow-up", follow_up_stage: "Proposal sent", prompt_text: "Short and clear, one question at the end." }],
   ["update_template", { run_id: runId, template_id: w.template, name: "House style, renamed" }],
@@ -187,6 +187,10 @@ export const callsFor = (w: World, runId: string): [string, Record<string, unkno
   ["pause_sequence", { run_id: runId, sequence_id: w.paused1 }],
   ["resume_sequence", { run_id: runId, sequence_id: w.paused1 }],
   ["stop_sequence", { run_id: runId, sequence_id: w.draft2, reason: "No longer needed" }],
+  ["activate_sequence", { run_id: runId, sequence_ids: [w.draft1] }],
+  ["update_workspace_settings", { run_id: runId, timezone: "Europe/London" }],
+  ["delete_lead", { run_id: runId, lead_id: w.lead2, reason: "Duplicate" }],
+  ["clear_do_not_contact", { run_id: runId, lead_id: w.lead4, reason: "Set by mistake" }],
   ["list_sequences", {}],
   ["get_sequence", { sequence_id: w.draft1 }],
   ["get_sequence_activity", { sequence_id: w.draft1 }],
@@ -199,7 +203,12 @@ export const callsFor = (w: World, runId: string): [string, Record<string, unkno
 
 /** Tools that are expected to answer with an error in the pass above. */
 export const EXPECTED_ERRORS: Record<string, string> = {
+  // The five workspace switches are off by default.
   resume_sequence: "HUMAN_ONLY",
+  activate_sequence: "HUMAN_ONLY",
+  update_workspace_settings: "HUMAN_ONLY",
+  delete_lead: "HUMAN_ONLY",
+  clear_do_not_contact: "HUMAN_ONLY",
 };
 
 const VOLATILE = new Set(["updatedAt", "lastUsedAt"]);

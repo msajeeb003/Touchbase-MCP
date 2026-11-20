@@ -171,6 +171,7 @@ const processMailboxMessage = async (
   const lead = await prisma.lead.findFirst({
     where: {
       userId,
+      deletedAt: null,
       email: { equals: from.email, mode: "insensitive" },
     },
     select: { id: true },
